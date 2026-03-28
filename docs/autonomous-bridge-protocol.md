@@ -224,7 +224,7 @@ After adding the flag, Claude Code autonomously wrote 19 files (5,019 lines) inc
 - **Node.js:** v22.14.0
 - **Bridge:** port 3201, launchd managed (`com.clawbridge.builder`)
 - **Docker:** OpenClaw container with Codex, gateway on port 18789
-- **Port registry:** TangleClaw on Cursatory (192.168.10.99:3102), multi-host aware
+- **Port registry:** External port registry (if available)
 
 ---
 

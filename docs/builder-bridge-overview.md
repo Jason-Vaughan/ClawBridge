@@ -14,7 +14,7 @@ Port 18790 (`OPENCLAW_BRIDGE_PORT`) is OpenClaw's internal RPC — it is **not**
 
 ## Scope
 
-This bridge lives **entirely on habitat**. It has nothing to do with TangleClaw, PortHub, or Cursatory. It is a localhost service on the habitat Mac Studio that the Docker container talks to.
+This bridge lives **entirely on the host machine**. It is a localhost service that the Docker container talks to.
 
 ## Architecture
 
@@ -318,7 +318,7 @@ v1 routes use one-shot `--print` execution with `bypassPermissions`. They contin
 ### Endpoints
 
 ```
-GET  /health              → { ok, claude, prawduct, projectsDir, tangleclaw, circuitBreaker, activeSessions, v2ActiveSessions }
+GET  /health              → { ok, claude, prawduct, projectsDir, circuitBreaker, activeSessions, v2ActiveSessions }
 
 POST /claude/run
   { "prompt": "...", "workDir": "/path/to/project", "flags": ["--print"], "timeout": 300000 }

@@ -181,7 +181,7 @@ Actual code layout (verified from ClawBridge repo):
 ```text
 bridge/
   server.js                          # main server — v1 + v2 routes
-  .env.example                       # env template (BRIDGE_PORT, BRIDGE_TOKEN, TANGLECLAW_URL)
+  .env.example                       # env template (BRIDGE_PORT, BRIDGE_TOKEN, CLAUDE_CODE_OAUTH_TOKEN)
   com.clawbridge.builder.plist # launchd service definition
   v2/
     types.js
@@ -253,7 +253,6 @@ Copy `.env.example` from the repo and fill in real values:
 ```env
 BRIDGE_PORT=3201
 BRIDGE_TOKEN=<random strong token>
-TANGLECLAW_URL=https://<tangleclaw-host>:3102
 CLAUDE_CODE_OAUTH_TOKEN=<from claude setup-token — see Step 2c>
 ```
 
@@ -278,7 +277,7 @@ Key plist settings (already configured in the repo copy):
 - **RunAtLoad:** true
 - **KeepAlive:** true (auto-restart on crash)
 - **Logs:** `/Users/<user>/logs/builder-bridge.log` (both stdout and stderr)
-- **Environment:** PATH, HOME, BRIDGE_PORT, TANGLECLAW_URL baked into the plist
+- **Environment:** PATH, HOME, BRIDGE_PORT baked into the plist
 
 Load and start:
 ```bash

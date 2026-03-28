@@ -93,7 +93,6 @@ cp bridge/.env.example bridge/.env
 | `CLAUDE_CODE_OAUTH_TOKEN` | Yes | Token from `claude setup-token` for headless auth |
 | `CLAUDE_BIN` | No | Path to Claude Code binary (default: `/usr/local/bin/claude`) |
 | `PYTHON_BIN` | No | Path to Python 3 binary (default: `/usr/bin/python3`) |
-| `TANGLECLAW_URL` | No | TangleClaw API URL for port registration (default: disabled) |
 
 ### Claude Code Headless Auth
 

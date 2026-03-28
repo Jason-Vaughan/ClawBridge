@@ -35,7 +35,6 @@ const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
 const CLAUDE_BIN = process.env.CLAUDE_BIN || '/usr/local/bin/claude';
 const PYTHON_BIN = process.env.PYTHON_BIN || '/usr/bin/python3';
 const PRAWDUCT_SETUP = path.join(PRAWDUCT_DIR, 'tools', 'prawduct-setup.py');
-const TANGLECLAW_URL = process.env.TANGLECLAW_URL || '';
 const EXPORTS_DIR = path.join(HOME, '.openclaw', 'exports');
 
 const DEFAULT_TIMEOUT = 300000; // 5 min
@@ -381,7 +380,6 @@ const server = http.createServer(async (req, res) => {
         claude: claudeVersion,
         prawduct: prawductExists ? 'available' : 'not found',
         projectsDir: PROJECTS_DIR,
-        tangleclaw: TANGLECLAW_URL,
         circuitBreaker: { open: _circuitOpen, failures: _consecutiveFailures, threshold: CIRCUIT_BREAKER_THRESHOLD },
         activeSessions: _sessions.size,
         v2ActiveSessions: v2SessionManager.activeCount
