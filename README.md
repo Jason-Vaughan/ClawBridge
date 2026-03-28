@@ -68,23 +68,78 @@ v2 is the active system. v1 remains for simple one-shot tasks.
 - **Claude Code** — installed on the host at a known path
 - **macOS** with launchd (or Linux with systemd)
 
-## Installation
+## Quickstart
+
+### Requirements
+
+- Node.js 18+
+- Claude Code CLI installed on the host
+- A valid Claude Code auth token configured via `claude setup-token`
+- Build tooling needed by `node-pty` on your host
+
+### 1. Clone and install
 
 ```bash
-# Clone and install
-git clone git@github.com:Jason-Vaughan/ClawBridge.git
+git clone https://github.com/Jason-Vaughan/ClawBridge.git
 cd ClawBridge
 npm install
-
-# Rebuild node-pty native addon (REQUIRED)
 npx node-gyp rebuild
-
-# Configure
-cp bridge/.env.example bridge/.env
-# Edit bridge/.env with real values
 ```
 
-### Environment Variables
+### 2. Configure environment
+
+```bash
+cp bridge/.env.example bridge/.env
+```
+
+Edit `bridge/.env` and set at minimum:
+
+```env
+BRIDGE_PORT=3201
+BRIDGE_TOKEN=replace-me
+CLAUDE_CODE_OAUTH_TOKEN=replace-me
+```
+
+Optional overrides:
+
+```env
+CLAUDE_BIN=/usr/local/bin/claude
+PYTHON_BIN=/usr/bin/python3
+```
+
+### 3. Start the bridge
+
+For local/manual testing:
+
+```bash
+cd bridge
+node server.js
+```
+
+### 4. Health check
+
+```bash
+curl http://localhost:3201/health
+```
+
+### 5. Try a one-shot Claude run
+
+```bash
+curl -X POST http://localhost:3201/claude/run \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $BRIDGE_TOKEN" \
+  -d '{
+    "prompt": "Reply with exactly: ClawBridge is working",
+    "workDir": "/tmp",
+    "timeout": 60000
+  }'
+```
+
+### 6. Deploy as a service
+
+For persistent deployment, use launchd (macOS) or systemd (Linux) below.
+
+## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -104,10 +159,12 @@ claude setup-token
 
 This generates the `CLAUDE_CODE_OAUTH_TOKEN`. **Do not rely on keychain auth** — it is GUI-session-scoped and will not work from launchd or SSH contexts.
 
-### macOS Deployment (launchd)
+## Deployment
+
+### macOS (launchd)
 
 ```bash
-# Copy plist (edit paths inside to match your system)
+# Copy plist (edit CHANGEME paths inside to match your system)
 cp bridge/com.clawbridge.builder.plist ~/Library/LaunchAgents/
 
 # Load and start
@@ -116,6 +173,40 @@ launchctl load ~/Library/LaunchAgents/com.clawbridge.builder.plist
 # Restart (KeepAlive auto-relaunches)
 launchctl stop com.clawbridge.builder
 ```
+
+### Linux (systemd)
+
+Create `/etc/systemd/system/clawbridge.service`:
+
+```ini
+[Unit]
+Description=ClawBridge host-side Claude Code bridge
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/ClawBridge/bridge
+EnvironmentFile=/home/YOUR_USER/ClawBridge/bridge/.env
+Environment=HOME=/home/YOUR_USER
+ExecStart=/usr/bin/node /home/YOUR_USER/ClawBridge/bridge/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable clawbridge
+sudo systemctl start clawbridge
+sudo systemctl status clawbridge
+```
+
+If Claude Code or Python are in non-standard locations, set `CLAUDE_BIN` and `PYTHON_BIN` in `bridge/.env`.
 
 ### Docker Access
 
@@ -196,6 +287,10 @@ The envelope tells ClawBridge which permissions to auto-handle vs. pause for rev
 
 No envelope = everything requires review (fail-closed).
 
+## Optional prawduct Integration
+
+ClawBridge can be used as a standalone Claude Code bridge. If [prawduct](https://github.com/brookst/prawduct) is installed on the host, ClawBridge also exposes prawduct lifecycle commands (setup, sync, validate) via the `/prawduct/run` endpoint. This integration is optional and not required for core Claude session features.
+
 ## Testing
 
 ```bash
@@ -213,8 +308,8 @@ npm run test:watch
 
 ```
 ClawBridge/
+  LICENSE
   package.json
-  .env.example             -> symlink to bridge/.env.example
   bridge/
     server.js              # HTTP server, auth, routing, v1+v2
     .env.example           # Environment template
@@ -256,4 +351,4 @@ ClawBridge/
 
 ## License
 
-Private. Not licensed for external use.
+MIT. See [LICENSE](LICENSE).
