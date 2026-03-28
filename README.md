@@ -15,8 +15,6 @@ OpenClaw runs inside a Docker container. Claude Code runs on the host. They can'
 
 v2 is the active system. v1 remains for simple one-shot tasks.
 
-> **Historical note:** This was originally developed as the "builder bridge" inside the RentalClaw project. It has been extracted into a standalone repo for reuse across any OpenClaw deployment.
-
 ## Architecture
 
 ```
