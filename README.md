@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/clawbridge-logo.png" alt="ClawBridge" width="400">
+</p>
+
 # ClawBridge
 
 A PTY permission-broker bridge that lets [OpenClaw](https://github.com/openclaw) drive [Claude Code](https://claude.ai/claude-code) sessions with structured permission review. It runs on the host machine and exposes an HTTP API that OpenClaw's Docker container calls to spawn, manage, and interact with Claude Code sessions.
