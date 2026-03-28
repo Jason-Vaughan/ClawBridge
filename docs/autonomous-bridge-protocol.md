@@ -174,7 +174,7 @@ POST /prawduct/run  →  { command: "validate" }
 - **Autonomous file writes** — `--permission-mode bypassPermissions` allows Claude Code to create/modify files without prompts ✓
 - **Persistent sessions** — Claude Code remembers context across multiple `/session/send` calls via `--resume` ✓
 - **Session end with governance** — stop hook fires, handoff written, no "Hook cancelled" errors ✓
-- **Real project build** — rentalclaw-tools chunk 1 (Fastify + SQLite + Drizzle + Vitest, 19 files, 11 tests) built and verified ✓
+- **Real project build** — first project chunk (Fastify + SQLite + Drizzle + Vitest, 19 files, 11 tests) built and verified ✓
 - **Re-verification via persistent session** — existing project inspected, tests run, acceptance criteria checked ✓
 - **Circuit breaker** — trips after 3 failures, resets on success ✓
 
@@ -222,7 +222,7 @@ After adding the flag, Claude Code autonomously wrote 19 files (5,019 lines) inc
 - **Claude Code:** 2.1.81, installed at `/usr/local/bin/claude`
 - **prawduct:** v1.2.0, at `~/prawduct`
 - **Node.js:** v22.14.0
-- **Bridge:** port 3201, launchd managed (`com.rentalclaw.builder-bridge`)
+- **Bridge:** port 3201, launchd managed (`com.clawbridge.builder`)
 - **Docker:** OpenClaw container with Codex, gateway on port 18789
 - **Port registry:** TangleClaw on Cursatory (192.168.10.99:3102), multi-host aware
 

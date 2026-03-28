@@ -336,7 +336,7 @@ All logic that reasons about session liveness must use `session.isTerminal` (whi
 
 - **Bridge location:** `<deploy-dir>/` (e.g., `~/builder-bridge/`)
 - **Port:** Configured via `BRIDGE_PORT` in `.env` (default: 3201)
-- **Process manager:** launchd on macOS (`com.rentalclaw.builder-bridge`), systemd on Linux
+- **Process manager:** launchd on macOS (`com.clawbridge.builder`), systemd on Linux
 - **Auth token:** `<deploy-dir>/.env` (`BRIDGE_TOKEN`)
 - **Projects directory:** `~/.openclaw/projects/`
 
@@ -344,14 +344,14 @@ All logic that reasons about session liveness must use `session.isTerminal` (whi
 
 ```bash
 # Restart bridge (macOS — KeepAlive auto-restarts it)
-launchctl stop com.rentalclaw.builder-bridge
+launchctl stop com.clawbridge.builder
 
 # Check health
 curl -s http://localhost:3201/health | jq .
 
 # Deploy updated files
 scp bridge/v2/*.js <host>:<deploy-dir>/bridge/v2/
-ssh <host> "launchctl stop com.rentalclaw.builder-bridge"
+ssh <host> "launchctl stop com.clawbridge.builder"
 
 # Check active v2 sessions
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3201/v2/sessions | jq .
@@ -383,7 +383,7 @@ Any maintenance run on the bridge should follow these rules:
 5. **Easy rollback.** Keep the previous version of any changed file. If something breaks:
    ```bash
    scp bridge/v2/permission-parser.js.bak <host>:<deploy-dir>/bridge/v2/permission-parser.js
-   ssh <host> "launchctl stop com.rentalclaw.builder-bridge"
+   ssh <host> "launchctl stop com.clawbridge.builder"
    ```
 6. **Human-visible summary.** Before any deployment, produce a summary of what changed and why. The reviewer (human or NHE-ITL) should be able to understand the change without reading the diff.
 7. **Don't change ANSI stripping or input injection casually.** These are the two areas where "works in tests, fails in live PTY" is most likely. Changes to `stripAnsi()`, `CONFIRMATION_PATTERN`, `PROMPT_PATTERNS`, or any `pty.write()` call should be accompanied by a live E2E smoke run.

@@ -1,6 +1,6 @@
-# Claude Code + prawduct Builder Bridge Rebuild Guide
+# ClawBridge Rebuild Guide
 
-This document is the consolidated rebuild/deployment reference for the RentalClaw builder-bridge setup: what it is, what pieces exist, how they fit together, how to reproduce it on another OpenClaw system, and what was learned while getting it working.
+This document is the consolidated rebuild/deployment reference for the ClawBridge setup: what it is, what pieces exist, how they fit together, how to reproduce it on another OpenClaw system, and what was learned while getting it working.
 
 It is intentionally written as an operator handoff, not a design sketch.
 
@@ -48,7 +48,7 @@ From `TOOLS.md` and bridge docs, the working system was documented as follows:
 
 ### Host-side paths
 - **Projects:** `/Users/habitat-admin/.openclaw/projects/`
-- **Shared data:** `/Users/habitat-admin/.openclaw/data/rentalclaw/`
+- **Shared data:** `/Users/<user>/.openclaw/data/<project>/`
 - **prawduct repo:** `/Users/habitat-admin/prawduct/`
 - **Exports:** `/Users/habitat-admin/.openclaw/exports/`
 
@@ -62,7 +62,7 @@ From `TOOLS.md` and bridge docs, the working system was documented as follows:
 Per `docs/bridge-v2-maintainer-guide.md`:
 - **Bridge location:** `/Users/habitat-admin/builder-bridge/`
 - **Process manager:** `launchd`
-- **Launchd label:** `com.rentalclaw.builder-bridge`
+- **Launchd label:** `com.clawbridge.builder`
 - **Port:** `3201`
 - **Token source:** `/Users/habitat-admin/builder-bridge/.env` via `BRIDGE_TOKEN`
 
@@ -174,15 +174,15 @@ If not using macOS, substitute equivalent host paths and service manager, but ke
 
 ### Step 2: Install the builder bridge code
 
-**The complete bridge source is archived in the RentalClaw git repo** at `bridge/`. This is the canonical copy. On the host, it gets deployed to `/Users/<user>/builder-bridge/`.
+**The complete bridge source is archived in the ClawBridge repo** at `bridge/`. This is the canonical copy. On the host, it gets deployed to `/Users/<user>/builder-bridge/`.
 
-Actual code layout (verified from RentalClaw repo):
+Actual code layout (verified from ClawBridge repo):
 
 ```text
 bridge/
   server.js                          # main server — v1 + v2 routes
   .env.example                       # env template (BRIDGE_PORT, BRIDGE_TOKEN, TANGLECLAW_URL)
-  com.rentalclaw.builder-bridge.plist # launchd service definition
+  com.clawbridge.builder.plist # launchd service definition
   v2/
     types.js
     pty.js                           # PTY lifecycle management
@@ -265,14 +265,14 @@ Do **not** reuse the current token blindly on a new system unless you intentiona
 
 ### Step 4: Configure the bridge service manager
 
-The launchd plist is in the repo at `bridge/com.rentalclaw.builder-bridge.plist`. Copy it to the host:
+The launchd plist is in the repo at `bridge/com.clawbridge.builder.plist`. Copy it to the host:
 
 ```bash
-cp bridge/com.rentalclaw.builder-bridge.plist ~/Library/LaunchAgents/
+cp bridge/com.clawbridge.builder.plist ~/Library/LaunchAgents/
 ```
 
 Key plist settings (already configured in the repo copy):
-- **Label:** `com.rentalclaw.builder-bridge`
+- **Label:** `com.clawbridge.builder`
 - **ProgramArguments:** `/usr/local/bin/node /Users/<user>/builder-bridge/server.js`
 - **WorkingDirectory:** `/Users/<user>/builder-bridge`
 - **RunAtLoad:** true
@@ -282,12 +282,12 @@ Key plist settings (already configured in the repo copy):
 
 Load and start:
 ```bash
-launchctl load ~/Library/LaunchAgents/com.rentalclaw.builder-bridge.plist
+launchctl load ~/Library/LaunchAgents/com.clawbridge.builder.plist
 ```
 
 Restart (KeepAlive causes auto-relaunch):
 ```bash
-launchctl stop com.rentalclaw.builder-bridge
+launchctl stop com.clawbridge.builder
 ```
 
 If rebuilding on Linux, use systemd instead, but keep the same service semantics.
@@ -490,7 +490,7 @@ Specifically, the subagent found:
 - and direct SSH from this container to `habitat-admin@192.168.20.10` failed due to auth constraints
 
 The subagent also found:
-- `rentalclaw-tools` was not the bridge repo
+- the project tools repo was not the bridge repo
 - no visible `bridge/v2/__tests__/e2e.test.js` under documented project roots
 - broader discovery was constrained because the bridge only allowed workdirs under the projects dir or prawduct dir
 
@@ -511,17 +511,17 @@ Do not assume that because the bridge API is reachable, its source tree is also 
 
 ## 13. Host-side source archive location
 
-**All host-side artifacts are already archived** in the RentalClaw git repo under `bridge/`:
+**All host-side artifacts are already archived** in the ClawBridge repo under `bridge/`:
 
 | Artifact | Location in repo |
 |---|---|
 | Main server (v1 + v2) | `bridge/server.js` |
 | v2 PTY broker modules | `bridge/v2/*.js` |
 | v2 test suite (400+ tests) | `bridge/v2/__tests__/*.test.js` |
-| launchd plist | `bridge/com.rentalclaw.builder-bridge.plist` |
+| launchd plist | `bridge/com.clawbridge.builder.plist` |
 | Environment template | `bridge/.env.example` |
 
-The RentalClaw repo (`/Users/habitat-admin/.openclaw/projects/rentalclaw/`) is the canonical source. On habitat, the deployed copy lives at `/Users/habitat-admin/builder-bridge/`.
+The ClawBridge repo is the canonical source. The deployed copy lives at `<deploy-dir>/builder-bridge/` on the host.
 
 **Note for OpenClaw:** These files are not visible from inside the container via the bridge API — the bridge restricts workdir access to the projects and prawduct directories. To inspect or update bridge source, you need either: (a) an operator with host access, or (b) the files mirrored into a container-visible path.
 
@@ -544,11 +544,11 @@ For a durable handoff, preserve these artifacts together:
 - `docs/openclaw-bridge-v2-supervised-maintenance-trial.md` (supervised maintenance trial notes)
 
 ### B. Host source (already archived)
-All of these are in the RentalClaw git repo at `bridge/`:
+All of these are in the ClawBridge repo at `bridge/`:
 - `bridge/server.js` — main server
 - `bridge/v2/` — full PTY broker implementation
 - `bridge/v2/__tests__/` — 400+ test suite
-- `bridge/com.rentalclaw.builder-bridge.plist` — launchd config
+- `bridge/com.clawbridge.builder.plist` — launchd config
 - `bridge/.env.example` — environment template (secrets redacted)
 
 ### C. Deployment notes
@@ -564,7 +564,7 @@ Capture:
 
 ## 15. Completeness status
 
-This is a **validated deployment/rebuild guide**, with host source archived in the RentalClaw repo and the deployed copy cross-checked against habitat.
+This is a **validated deployment/rebuild guide**, with host source archived in the ClawBridge repo and the deployed copy cross-checked against habitat.
 
 All host-side source, service config, environment templates, and test suites are version-controlled. The repo copy and deployed habitat copy were verified identical (MD5 match on `server.js`, zero diff on all v2 modules) as of 2026-03-28.
 
@@ -609,7 +609,7 @@ This is a **validated rebuild/handoff document** based on:
 - current workspace docs
 - recent memory notes
 - recent OpenClaw-side validation findings
-- verified host-side source and config (archived in RentalClaw repo at `bridge/`)
+- verified host-side source and config (archived in ClawBridge repo at `bridge/`)
 
 ### Audit trail
 - **Draft:** Written by OpenClaw from workspace docs and memory

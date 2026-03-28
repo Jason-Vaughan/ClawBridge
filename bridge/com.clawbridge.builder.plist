@@ -3,32 +3,33 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.rentalclaw.builder-bridge</string>
+    <string>com.clawbridge.builder</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/node</string>
-        <string>/Users/habitat-admin/builder-bridge/server.js</string>
+        <!-- Edit this path to match your deployment directory -->
+        <string>/Users/CHANGEME/builder-bridge/server.js</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/habitat-admin/builder-bridge</string>
+    <!-- Edit this path to match your deployment directory -->
+    <string>/Users/CHANGEME/builder-bridge</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
-        <string>/Users/habitat-admin</string>
+        <!-- Edit to your deploy user's home directory -->
+        <string>/Users/CHANGEME</string>
         <key>BRIDGE_PORT</key>
         <string>3201</string>
-        <key>TANGLECLAW_URL</key>
-        <string>https://192.168.10.99:3102</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/habitat-admin/logs/builder-bridge.log</string>
+    <string>/Users/CHANGEME/logs/builder-bridge.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/habitat-admin/logs/builder-bridge.log</string>
+    <string>/Users/CHANGEME/logs/builder-bridge.log</string>
 </dict>
 </plist>

@@ -7,7 +7,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 // Use a temp directory for test projects
-const TEST_DIR = path.join(os.tmpdir(), `rentalclaw-output-test-${Date.now()}`);
+const TEST_DIR = path.join(os.tmpdir(), `clawbridge-output-test-${Date.now()}`);
 
 describe('Output polling integration', () => {
   let manager;

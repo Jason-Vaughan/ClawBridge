@@ -103,7 +103,7 @@ timed_out -> ended                       (cleanup performed)
   "kind": "permission",
   "createdAt": "2026-03-25T00:16:00Z",
   "sessionId": "sess_abc123",
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "rawPrompt": "Allow write to src/routes/jobs.ts? [1/2/3]",
   "permissionType": "file_write",
   "risk": "low",
@@ -151,7 +151,7 @@ timed_out -> ended                       (cleanup performed)
 
 #### Shell command
 ```json
-{ "command": "npm install better-sqlite3", "cwd": "/Users/habitat-admin/.openclaw/projects/rentalclaw-tools" }
+{ "command": "npm install better-sqlite3", "cwd": "~/.openclaw/projects/my-project" }
 ```
 
 #### Network access
@@ -189,7 +189,7 @@ The client may attach a session-level approval envelope when starting a session 
 ```json
 {
   "mode": "scoped",
-  "projectRoot": "/Users/habitat-admin/.openclaw/projects/rentalclaw-tools",
+  "projectRoot": "~/.openclaw/projects/my-project",
   "rules": {
     "fileWrites": {
       "withinProject": "auto_approve",
@@ -270,12 +270,12 @@ Start a fresh PTY-backed Claude Code session for a project.
 #### Request
 ```json
 {
-  "project": "rentalclaw-tools",
-  "cwd": "/Users/habitat-admin/.openclaw/projects/rentalclaw-tools",
+  "project": "my-project",
+  "cwd": "~/.openclaw/projects/my-project",
   "timeout": 1800000,
   "approvalEnvelope": {
     "mode": "scoped",
-    "projectRoot": "/Users/habitat-admin/.openclaw/projects/rentalclaw-tools",
+    "projectRoot": "~/.openclaw/projects/my-project",
     "rules": {
       "fileWrites": {
         "withinProject": "auto_approve",
@@ -310,7 +310,7 @@ Start a fresh PTY-backed Claude Code session for a project.
 ```json
 {
   "ok": true,
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "sessionId": "sess_abc123",
   "state": "running",
   "createdAt": "2026-03-25T00:16:00Z",
@@ -332,7 +332,7 @@ Send a normal instruction into an existing running session. Does NOT auto-start 
 #### Request
 ```json
 {
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "message": "Execute chunk 2 from project-state.yaml. Run tests before stopping."
 }
 ```
@@ -341,7 +341,7 @@ Send a normal instruction into an existing running session. Does NOT auto-start 
 ```json
 {
   "ok": true,
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "sessionId": "sess_abc123",
   "state": "running",
   "accepted": true,
@@ -364,7 +364,7 @@ Return current session metadata.
 ```json
 {
   "ok": true,
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "active": true,
   "sessionId": "sess_abc123",
   "state": "waiting_for_permission",
@@ -392,7 +392,7 @@ Cursor-based polling endpoint for incremental output and structured events.
 ```json
 {
   "ok": true,
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "sessionId": "sess_abc123",
   "state": "waiting_for_permission",
   "cursorStart": 20,
@@ -415,7 +415,7 @@ Cursor-based polling endpoint for incremental output and structured events.
         "kind": "permission",
         "createdAt": "2026-03-25T00:18:39Z",
         "sessionId": "sess_abc123",
-        "project": "rentalclaw-tools",
+        "project": "my-project",
         "rawPrompt": "Allow write to src/routes/jobs.ts? [1/2/3]",
         "permissionType": "file_write",
         "risk": "low",
@@ -459,7 +459,7 @@ Respond to the currently pending permission request.
 #### Request
 ```json
 {
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "permissionId": "perm_017",
   "decision": "approve_once",
   "reason": "Project-local source edit within approved chunk scope"
@@ -479,7 +479,7 @@ Optional future extensions:
 ```json
 {
   "ok": true,
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "sessionId": "sess_abc123",
   "state": "running",
   "cursor": 25,
@@ -511,10 +511,10 @@ Update the approval envelope for an active session.
 #### Request
 ```json
 {
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "approvalEnvelope": {
     "mode": "scoped",
-    "projectRoot": "/Users/habitat-admin/.openclaw/projects/rentalclaw-tools",
+    "projectRoot": "~/.openclaw/projects/my-project",
     "rules": {
       "fileWrites": {
         "withinProject": "auto_approve",
@@ -536,7 +536,7 @@ Update the approval envelope for an active session.
 ```json
 {
   "ok": true,
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "sessionId": "sess_abc123",
   "state": "running",
   "policyUpdated": true
@@ -552,7 +552,7 @@ Request graceful wrap-up and session termination.
 #### Request
 ```json
 {
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "message": "Wrap up, write handoff, and end session."
 }
 ```
@@ -561,7 +561,7 @@ Request graceful wrap-up and session termination.
 ```json
 {
   "ok": true,
-  "project": "rentalclaw-tools",
+  "project": "my-project",
   "sessionId": "sess_abc123",
   "state": "ended",
   "exitCode": 0,
@@ -587,7 +587,7 @@ List all active PTY sessions.
   "ok": true,
   "sessions": [
     {
-      "project": "rentalclaw-tools",
+      "project": "my-project",
       "sessionId": "sess_abc123",
       "state": "running",
       "createdAt": "2026-03-25T00:16:00Z",
@@ -748,12 +748,12 @@ The event log is the canonical audit trail and MUST contain:
 
 ---
 
-## 11. Suggested Default Approval Envelope for rentalclaw-tools
+## 11. Suggested Default Approval Envelope for my-project
 
 ```json
 {
   "mode": "scoped",
-  "projectRoot": "/Users/habitat-admin/.openclaw/projects/rentalclaw-tools",
+  "projectRoot": "~/.openclaw/projects/my-project",
   "rules": {
     "fileWrites": {
       "withinProject": "auto_approve",

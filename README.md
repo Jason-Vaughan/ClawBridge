@@ -109,13 +109,13 @@ This generates the `CLAUDE_CODE_OAUTH_TOKEN`. **Do not rely on keychain auth** â
 
 ```bash
 # Copy plist (edit paths inside to match your system)
-cp bridge/com.rentalclaw.builder-bridge.plist ~/Library/LaunchAgents/
+cp bridge/com.clawbridge.builder.plist ~/Library/LaunchAgents/
 
 # Load and start
-launchctl load ~/Library/LaunchAgents/com.rentalclaw.builder-bridge.plist
+launchctl load ~/Library/LaunchAgents/com.clawbridge.builder.plist
 
 # Restart (KeepAlive auto-relaunches)
-launchctl stop com.rentalclaw.builder-bridge
+launchctl stop com.clawbridge.builder
 ```
 
 ### Docker Access
@@ -219,7 +219,7 @@ ClawBridge/
   bridge/
     server.js              # HTTP server, auth, routing, v1+v2
     .env.example           # Environment template
-    com.rentalclaw.builder-bridge.plist  # launchd service definition
+    com.clawbridge.builder.plist  # launchd service definition
     v2/
       types.js             # Enums: SessionState, EventKind, PermissionType, etc.
       pty.js               # PTY process wrapper (node-pty + child_process fallback)

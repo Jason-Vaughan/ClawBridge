@@ -114,7 +114,7 @@ For the container to reach the host:
 
 ### Process Management
 
-- Run as a launchd service (`com.rentalclaw.builder-bridge`)
+- Run as a launchd service (`com.clawbridge.builder`)
 - Auto-restart on failure
 - Log to `~/logs/builder-bridge.log`
 
