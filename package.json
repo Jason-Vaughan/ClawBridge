@@ -1,0 +1,16 @@
+{
+  "name": "clawbridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ClawBridge — PTY permission-broker bridge for OpenClaw ↔ Claude Code",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.1.1"
+  }
+}
