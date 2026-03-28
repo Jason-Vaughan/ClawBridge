@@ -8,7 +8,9 @@ A PTY permission-broker bridge that lets [OpenClaw](https://github.com/openclaw)
 
 ## What Problem It Solves
 
-OpenClaw runs inside a Docker container. Claude Code runs on the host. They can't talk directly. ClawBridge sits on the host as a lightweight HTTP service that bridges the gap:
+OpenClaw is built on OpenAI Codex — it doesn't have access to Anthropic's Claude Code. ClawBridge adds Claude Code as a callable skill that any OpenClaw instance can use, giving it access to Claude's coding capabilities alongside its native tooling.
+
+Claude Code runs on the host as a CLI tool. OpenClaw runs inside a Docker container. They can't talk directly. ClawBridge sits on the host as a lightweight HTTP service that bridges the gap, exposing Claude Code sessions over a simple JSON API:
 
 - **v1 (legacy):** Fire-and-forget. Spawns Claude Code with `--print --dangerously-skip-permissions`, captures output, returns it. No permission review.
 - **v2 (PTY broker):** Interactive. Spawns Claude Code in a real PTY, detects permission prompts from TUI output, and lets OpenClaw approve or deny each one as an intelligent reviewer (NHE-ITL).
