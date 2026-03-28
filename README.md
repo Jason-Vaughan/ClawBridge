@@ -4,13 +4,15 @@
 
 # ClawBridge
 
-A PTY permission-broker bridge that lets [OpenClaw](https://github.com/openclaw) drive [Claude Code](https://claude.ai/claude-code) sessions with structured permission review. It runs on the host machine and exposes an HTTP API that OpenClaw's Docker container calls to spawn, manage, and interact with Claude Code sessions.
+A host-side HTTP bridge that exposes [Claude Code](https://claude.ai/claude-code) as a supervised build tool for automation systems like [OpenClaw](https://github.com/openclaw). It runs on the host machine and provides a JSON API for spawning, managing, and interacting with Claude Code sessions — with structured permission review.
 
 ## What Problem It Solves
 
-OpenClaw is built on OpenAI Codex — it doesn't have access to Anthropic's Claude Code. ClawBridge adds Claude Code as a callable skill that any OpenClaw instance can use, giving it access to Claude's coding capabilities alongside its native tooling.
+OpenClaw runs its own AI engine (OpenAI Codex) inside a Docker container. It acts as the **architect** — deciding what to build and why. But it needs a **builder** that can write code, run tests, and interact with the filesystem on the host.
 
-Claude Code runs on the host as a CLI tool. OpenClaw runs inside a Docker container. They can't talk directly. ClawBridge sits on the host as a lightweight HTTP service that bridges the gap, exposing Claude Code sessions over a simple JSON API:
+Claude Code is an excellent builder, but it runs on the host as a CLI tool — not inside the container. ClawBridge sits on the host as a lightweight HTTP service that bridges the gap, letting the orchestrator invoke Claude Code as a build tool while maintaining structured permission oversight.
+
+> **Note on Anthropic's third-party policy:** In January 2026, Anthropic [banned the use of Claude subscription OAuth tokens (Pro/Max) in third-party tools](https://www.theregister.com/2026/02/20/anthropic_clarifies_ban_third_party_claude_access/) — this was about token arbitrage, where third-party harnesses routed through cheaper subscription auth instead of API pricing. ClawBridge does **not** do this. It invokes Claude Code on the host as a build tool using proper API key authentication (`claude setup-token`), which is the [explicitly permitted path](https://code.claude.com/docs/en/legal-and-compliance) for developers building products that interact with Claude. ClawBridge does not replace OpenClaw's engine, spoof Claude Code's harness, or use subscription credentials — it's a tool invocation bridge, not an engine substitution.
 
 - **v1 (legacy):** Fire-and-forget. Spawns Claude Code with `--print --dangerously-skip-permissions`, captures output, returns it. No permission review.
 - **v2 (PTY broker):** Interactive. Spawns Claude Code in a real PTY, detects permission prompts from TUI output, and lets OpenClaw approve or deny each one as an intelligent reviewer (NHE-ITL).
