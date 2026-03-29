@@ -33,8 +33,33 @@ const HOME = process.env.HOME || require('node:os').homedir();
 const PROJECTS_DIR = path.join(HOME, '.openclaw', 'projects');
 const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
 const CLAUDE_BIN = process.env.CLAUDE_BIN || '/usr/local/bin/claude';
-const PYTHON_BIN = process.env.PYTHON_BIN || '/usr/bin/python3';
 const PRAWDUCT_SETUP = path.join(PRAWDUCT_DIR, 'tools', 'prawduct-setup.py');
+
+/**
+ * Resolve the python3 binary path, checking env var then known locations.
+ * @returns {string} Resolved path to python3
+ */
+function resolvePythonBin() {
+  if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
+  const candidates = [
+    '/usr/local/bin/python3',
+    '/opt/homebrew/bin/python3',
+    '/usr/bin/python3',
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  // Fall back to PATH-based resolution via which
+  try {
+    const { execSync } = require('node:child_process');
+    const resolved = execSync('which python3', { encoding: 'utf8', timeout: 3000 }).trim();
+    if (resolved) return resolved;
+  } catch { /* which failed */ }
+  // Last resort — return bare name and let spawn fail with a clear error
+  return 'python3';
+}
+
+const PYTHON_BIN = resolvePythonBin();
 const EXPORTS_DIR = path.join(HOME, '.openclaw', 'exports');
 
 const DEFAULT_TIMEOUT = 300000; // 5 min
@@ -216,7 +241,7 @@ function checkAuth(req) {
  * @param {string} dir
  * @returns {boolean}
  */
-const BRIDGE_DIR = path.join(HOME, 'builder-bridge');
+const BRIDGE_DIR = path.join(HOME, 'clawbridge');
 
 function isAllowedDir(dir) {
   const resolved = path.resolve(dir);
@@ -591,8 +616,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Builder bridge listening on 0.0.0.0:${PORT}`);
+  console.log(`ClawBridge listening on 0.0.0.0:${PORT}`);
   console.log(`  Claude: ${CLAUDE_BIN}`);
+  console.log(`  Python: ${PYTHON_BIN}`);
   console.log(`  Prawduct: ${PRAWDUCT_SETUP}`);
   console.log(`  Projects: ${PROJECTS_DIR}`);
   console.log(`  Auth: ${TOKEN ? 'Bearer token required' : 'OPEN (no token set)'}`);

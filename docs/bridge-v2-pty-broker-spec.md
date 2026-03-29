@@ -1,7 +1,7 @@
 # Bridge v2 PTY Permission-Broker Spec
 
 **Status:** Implemented (2026-03-24)
-**Audience:** Builder bridge implementers, OpenClaw orchestration layer, NHE-ITL reviewer
+**Audience:** ClawBridge implementers, OpenClaw orchestration layer, NHE-ITL reviewer
 **Goal:** Replace blanket `bypassPermissions` execution with interactive Claude Code PTY mediation, structured permission review, and resumable polling.
 
 ---

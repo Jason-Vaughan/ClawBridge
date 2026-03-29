@@ -110,7 +110,7 @@ Optional overrides:
 
 ```env
 CLAUDE_BIN=/usr/local/bin/claude
-PYTHON_BIN=/usr/bin/python3
+PYTHON_BIN=/usr/local/bin/python3  # auto-detected if not set
 ```
 
 ### 3. Start the bridge
@@ -153,7 +153,7 @@ For persistent deployment, use launchd (macOS) or systemd (Linux) below.
 | `BRIDGE_TOKEN` | Yes | Bearer token for API authentication |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Yes | Token from `claude setup-token` for headless auth |
 | `CLAUDE_BIN` | No | Path to Claude Code binary (default: `/usr/local/bin/claude`) |
-| `PYTHON_BIN` | No | Path to Python 3 binary (default: `/usr/bin/python3`) |
+| `PYTHON_BIN` | No | Path to Python 3 binary (auto-detected; checks `/usr/local/bin/python3`, `/opt/homebrew/bin/python3`, `/usr/bin/python3`, then `which python3`) |
 
 ### Claude Code Headless Auth
 
@@ -337,7 +337,7 @@ ClawBridge/
     bridge-v2-e2e-test.md
     bridge-v2-supervised-maintenance-trial.md
     autonomous-bridge-protocol.md
-    builder-bridge-overview.md
+    clawbridge-overview.md
     REBUILD_GUIDE.md
 ```
 
@@ -352,7 +352,7 @@ ClawBridge/
 | [E2E Test Prompt](docs/bridge-v2-e2e-test.md) | Full E2E validation procedure for OpenClaw |
 | [Supervised Maintenance Trial](docs/bridge-v2-supervised-maintenance-trial.md) | Template for NHE-ITL maintenance exercises |
 | [Autonomous Bridge Protocol](docs/autonomous-bridge-protocol.md) | How OpenClaw drives prawduct builds via v1 |
-| [Builder Bridge Overview](docs/builder-bridge-overview.md) | Original v1 design + v2 API reference |
+| [ClawBridge Overview](docs/clawbridge-overview.md) | Original v1 design + v2 API reference |
 | [Rebuild Guide](docs/REBUILD_GUIDE.md) | Complete deployment/rebuild manual |
 
 ## License

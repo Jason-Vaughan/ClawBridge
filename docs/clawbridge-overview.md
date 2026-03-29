@@ -25,13 +25,13 @@ This bridge lives **entirely on the host machine**. It is a localhost service th
 │  Role: Architect — decides what  │
 │        to build and why          │
 │                                  │
-│  Calls builder-bridge via HTTP   │
+│  Calls ClawBridge via HTTP   │
 │  http://host.docker.internal:3201│
 └──────────────┬───────────────────┘
                │ HTTP (JSON API)
                ▼
 ┌──────────────────────────────────┐
-│  Builder Bridge (habitat host)   │
+│  ClawBridge (habitat host)   │
 │  Lightweight HTTP service        │
 │  Port: 3201 (localhost only)     │
 │                                  │
@@ -116,14 +116,14 @@ For the container to reach the host:
 
 - Run as a launchd service (`com.clawbridge.builder`)
 - Auto-restart on failure
-- Log to `~/logs/builder-bridge.log`
+- Log to `~/logs/clawbridge.log`
 
 ## Container-Side Integration
 
 OpenClaw needs to know the bridge exists. Add to its workspace SOUL.md or TOOLS.md:
 
 ```markdown
-## Builder Bridge
+## ClawBridge
 - URL: http://host.docker.internal:3201
 - Auth: Bearer token (in environment)
 - Use this to run Claude Code and prawduct on the host for building tools

@@ -4,7 +4,7 @@ This guide is for anyone maintaining the bridge v2 PTY broker — human or NHE-I
 
 ## What the bridge does
 
-The builder bridge is an HTTP server running on habitat (port 3201) that lets OpenClaw drive Claude Code sessions. It has two modes:
+ClawBridge is an HTTP server running on habitat (port 3201) that lets OpenClaw drive Claude Code sessions. It has two modes:
 
 - **v1 (legacy):** Fire-and-forget. Spawns Claude Code with `--print --dangerously-skip-permissions`, collects stdout, returns it. No permission review. Routes: `/claude/run`, `/session/send`, `/session/end`.
 - **v2 (PTY broker):** Interactive. Spawns Claude Code in a real PTY, detects permission prompts from the TUI output, and lets OpenClaw approve/deny each one. Routes: `/v2/session/*`.
@@ -334,7 +334,7 @@ All logic that reasons about session liveness must use `session.isTerminal` (whi
 
 ### Deployment
 
-- **Bridge location:** `<deploy-dir>/` (e.g., `~/builder-bridge/`)
+- **Bridge location:** `<deploy-dir>/` (e.g., `~/clawbridge/`)
 - **Port:** Configured via `BRIDGE_PORT` in `.env` (default: 3201)
 - **Process manager:** launchd on macOS (`com.clawbridge.builder`), systemd on Linux
 - **Auth token:** `<deploy-dir>/.env` (`BRIDGE_TOKEN`)

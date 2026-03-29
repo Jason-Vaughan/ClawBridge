@@ -28,13 +28,13 @@ OpenClaw runs inside a Docker container. It can reason about what to build, but 
 │  Role: Architect / NHE-ITL          │
 │                                      │
 │  Drives builds via HTTP calls        │
-│  to the builder bridge               │
+│  to ClawBridge               │
 └──────────────┬───────────────────────┘
                │ HTTP (JSON API, Bearer token)
                │ http://host.docker.internal:3201
                ▼
 ┌──────────────────────────────────────┐
-│  Builder Bridge (habitat host)       │
+│  ClawBridge (habitat host)       │
 │  Node.js HTTP service, port 3201    │
 │  launchd managed, auto-restart       │
 │                                      │

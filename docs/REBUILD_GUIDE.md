@@ -14,7 +14,7 @@ The system has four layers:
    - This is where the assistant runs.
    - It cannot directly host Claude Code interactive sessions reliably inside the same OpenClaw tool loop for this use case.
 
-2. **Host-side builder bridge** on the OpenClaw machine
+2. **Host-side ClawBridge** on the OpenClaw machine
    - An HTTP service running outside the container.
    - Exposes a narrow API for invoking **Claude Code** and **prawduct** on the host.
    - Current documented port: `3201`
@@ -33,7 +33,7 @@ In short:
 - **OpenClaw = architect/orchestrator**
 - **Claude Code = builder**
 - **prawduct = project/governance framework**
-- **builder bridge = glue layer**
+- **ClawBridge = glue layer**
 
 ---
 
@@ -42,7 +42,7 @@ In short:
 From `TOOLS.md` and bridge docs, the working system was documented as follows:
 
 ### Host service
-- **Builder bridge URL:** `http://host.docker.internal:3201`
+- **ClawBridge URL:** `http://host.docker.internal:3201`
 - **Auth:** Bearer token
 - **Current token in workspace docs:** stored in `TOOLS.md`
 
@@ -60,11 +60,11 @@ From `TOOLS.md` and bridge docs, the working system was documented as follows:
 
 ### Documented bridge deployment details
 Per `docs/bridge-v2-maintainer-guide.md`:
-- **Bridge location:** `/Users/habitat-admin/builder-bridge/`
+- **Bridge location:** `/Users/habitat-admin/clawbridge/`
 - **Process manager:** `launchd`
 - **Launchd label:** `com.clawbridge.builder`
 - **Port:** `3201`
-- **Token source:** `/Users/habitat-admin/builder-bridge/.env` via `BRIDGE_TOKEN`
+- **Token source:** `/Users/habitat-admin/clawbridge/.env` via `BRIDGE_TOKEN`
 
 ---
 
@@ -139,7 +139,7 @@ To reproduce this solution elsewhere, recreate these pieces:
 1. An OpenClaw installation
 2. Claude Code installed on the host OS
 3. prawduct installed on the host OS
-4. A host-side builder bridge service
+4. A host-side ClawBridge service
 5. A host-visible projects root for Claude/prawduct work
 6. A stable auth token shared between OpenClaw workspace docs/config and the bridge
 7. A process manager entry to keep the bridge running across restarts
@@ -168,13 +168,13 @@ Create or confirm directories:
 - `/Users/<user>/.openclaw/projects/`
 - `/Users/<user>/.openclaw/data/<project>/`
 - `/Users/<user>/.openclaw/exports/`
-- bridge repo directory, e.g. `/Users/<user>/builder-bridge/`
+- bridge repo directory, e.g. `/Users/<user>/clawbridge/`
 
 If not using macOS, substitute equivalent host paths and service manager, but keep the same architecture.
 
-### Step 2: Install the builder bridge code
+### Step 2: Install the ClawBridge code
 
-**The complete bridge source is archived in the ClawBridge repo** at `bridge/`. This is the canonical copy. On the host, it gets deployed to `/Users/<user>/builder-bridge/`.
+**The complete bridge source is archived in the ClawBridge repo** at `bridge/`. This is the canonical copy. On the host, it gets deployed to `/Users/<user>/clawbridge/`.
 
 Actual code layout (verified from ClawBridge repo):
 
@@ -212,7 +212,7 @@ bridge/
 After copying the bridge source to the host, install dependencies:
 
 ```bash
-cd /Users/<user>/builder-bridge
+cd /Users/<user>/clawbridge
 npm install
 ```
 
@@ -230,7 +230,7 @@ The bridge provides:
 **This is a blocking step.** After `npm install`, the `node-pty` native addon must be manually rebuilt on the host:
 
 ```bash
-cd /Users/<user>/builder-bridge
+cd /Users/<user>/clawbridge
 npx node-gyp rebuild
 ```
 
@@ -272,11 +272,11 @@ cp bridge/com.clawbridge.builder.plist ~/Library/LaunchAgents/
 
 Key plist settings (already configured in the repo copy):
 - **Label:** `com.clawbridge.builder`
-- **ProgramArguments:** `/usr/local/bin/node /Users/<user>/builder-bridge/server.js`
-- **WorkingDirectory:** `/Users/<user>/builder-bridge`
+- **ProgramArguments:** `/usr/local/bin/node /Users/<user>/clawbridge/server.js`
+- **WorkingDirectory:** `/Users/<user>/clawbridge`
 - **RunAtLoad:** true
 - **KeepAlive:** true (auto-restart on crash)
-- **Logs:** `/Users/<user>/logs/builder-bridge.log` (both stdout and stderr)
+- **Logs:** `/Users/<user>/logs/clawbridge.log` (both stdout and stderr)
 - **Environment:** PATH, HOME, BRIDGE_PORT baked into the plist
 
 Load and start:
@@ -520,7 +520,7 @@ Do not assume that because the bridge API is reachable, its source tree is also 
 | launchd plist | `bridge/com.clawbridge.builder.plist` |
 | Environment template | `bridge/.env.example` |
 
-The ClawBridge repo is the canonical source. The deployed copy lives at `<deploy-dir>/builder-bridge/` on the host.
+The ClawBridge repo is the canonical source. The deployed copy lives at `<deploy-dir>/clawbridge/` on the host.
 
 **Note for OpenClaw:** These files are not visible from inside the container via the bridge API — the bridge restricts workdir access to the projects and prawduct directories. To inspect or update bridge source, you need either: (a) an operator with host access, or (b) the files mirrored into a container-visible path.
 
@@ -538,7 +538,7 @@ For a durable handoff, preserve these artifacts together:
 - `docs/openclaw-bridge-v2-e2e-prompt.md`
 - `docs/bridge-v2-bug-index.md`
 - `docs/bridge-v2-regression-checklist.md`
-- `docs/builder-bridge.md` (original v1 bridge docs)
+- `docs/clawbridge-overview.md` (original v1 bridge docs)
 - `docs/prawduct-autonomous-bridge.md` (autonomous build protocol)
 - `docs/openclaw-bridge-v2-supervised-maintenance-trial.md` (supervised maintenance trial notes)
 
@@ -581,7 +581,7 @@ Use this as the shortest practical summary.
 - Install Claude Code on host
 - Install prawduct on host
 - Install Node/Git/Python as needed
-- Deploy builder-bridge repo to host
+- Deploy ClawBridge repo to host
 - Configure `.env` with fresh `BRIDGE_TOKEN`
 - Create host project/data/export roots
 - Run bridge under launchd/systemd

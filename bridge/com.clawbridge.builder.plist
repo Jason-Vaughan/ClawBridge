@@ -8,11 +8,11 @@
     <array>
         <string>/usr/local/bin/node</string>
         <!-- Edit this path to match your deployment directory -->
-        <string>/Users/CHANGEME/builder-bridge/server.js</string>
+        <string>/Users/CHANGEME/clawbridge/server.js</string>
     </array>
     <key>WorkingDirectory</key>
     <!-- Edit this path to match your deployment directory -->
-    <string>/Users/CHANGEME/builder-bridge</string>
+    <string>/Users/CHANGEME/clawbridge</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -28,8 +28,8 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/CHANGEME/logs/builder-bridge.log</string>
+    <string>/Users/CHANGEME/logs/clawbridge.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/CHANGEME/logs/builder-bridge.log</string>
+    <string>/Users/CHANGEME/logs/clawbridge.log</string>
 </dict>
 </plist>
