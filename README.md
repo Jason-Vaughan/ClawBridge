@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/clawbridge-logo.png" alt="ClawBridge" width="400">
+  <img src="https://raw.githubusercontent.com/Jason-Vaughan/puberty-labs-assets/main/clawbridge_logo.png" alt="ClawBridge" width="400">
 </p>
 
 # ClawBridge
