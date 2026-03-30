@@ -215,12 +215,36 @@ function buildProcessesResponse() {
 
     const waitingForInput = session.state === 'waiting_for_permission';
     const transcript = session.eventLog ? session.eventLog.getTranscript() : '';
-    const lastOutput = transcript ? transcript.slice(-200) : null;
+    const lastOutput = transcript ? transcript.slice(-500) : null;
+
+    // Detect test results for pill content
+    let testResult = null;
+    try {
+      const { detectTestResult } = require('./v2/routes');
+      if (session.eventLog) testResult = detectTestResult(session.eventLog);
+    } catch { /* routes not loaded yet */ }
+
+    // Build a useful summary line
+    let summary = `v2 session: ${session.project}`;
+    if (testResult) {
+      summary += ` | tests: ${testResult.passed} passed`;
+      if (testResult.failed > 0) summary += `, ${testResult.failed} failed`;
+      summary += ` (${testResult.runner})`;
+    }
+    if (waitingForInput) {
+      summary += ' | WAITING FOR PERMISSION';
+      if (session.pendingPermission) {
+        summary += `: ${session.pendingPermission.permissionType}`;
+        const target = session.pendingPermission.target;
+        if (target && target.path) summary += ` → ${target.path}`;
+        if (target && target.command) summary += ` → ${target.command}`;
+      }
+    }
 
     const proc = {
       id: `v2-${session.sessionId}`,
       type: 'claude',
-      label: `v2 session: ${session.project}`,
+      label: summary,
       project: session.project,
       workDir: session.projectDir,
       status,
@@ -230,6 +254,7 @@ function buildProcessesResponse() {
       exitCode: session.exitCode,
       signal: null,
       lastOutputSnippet: lastOutput,
+      testResult,
       needsAttention: waitingForInput || status === 'failed',
       waitingForInput,
       suspectedStalled: false
@@ -247,9 +272,12 @@ function buildProcessesResponse() {
 
 // ── v2 Session Manager ──
 
+const HISTORY_DIR = path.join(__dirname, '.session-history');
+
 const v2SessionManager = new SessionManager({
   projectsDir: PROJECTS_DIR,
   claudeBin: CLAUDE_BIN,
+  historyDir: HISTORY_DIR,
 });
 
 const crypto = require('node:crypto');

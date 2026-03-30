@@ -465,4 +465,118 @@ describe('api-docs route', () => {
     expect(m.captured().body.ok).toBe(true);
     expect(m.captured().body.endpoints.length).toBeGreaterThan(0);
   });
+
+  it('api-docs includes /v2/session/last endpoint', () => {
+    const docs = getApiDocs();
+    const paths = docs.endpoints.map(e => e.path);
+    expect(paths).toContain('/v2/session/last');
+  });
+});
+
+// ── Session last (post-completion retrieval) ──
+
+describe('session last endpoint', () => {
+  const { handleV2Route } = require('../routes');
+  const { SessionManager } = require('../sessions');
+  const os = require('node:os');
+  const path = require('node:path');
+  const fs = require('node:fs');
+
+  const TEST_DIR = path.join(os.tmpdir(), `clawbridge-last-test-${Date.now()}`);
+  const HISTORY_DIR = path.join(TEST_DIR, '.history');
+
+  function mockRoute(method, pathname, query = {}) {
+    const sp = new URLSearchParams(query);
+    const url = new URL(`http://localhost/${pathname}?${sp.toString()}`);
+    let captured = null;
+    const res = {};
+    const json = (_res, status, body) => { captured = { status, body }; };
+    const parseBody = async () => ({});
+    return { method, pathname, url, req: {}, res, parseBody, json, captured: () => captured };
+  }
+
+  let manager;
+
+  beforeEach(() => {
+    fs.mkdirSync(TEST_DIR, { recursive: true });
+    manager = new SessionManager({
+      projectsDir: TEST_DIR,
+      claudeBin: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
+      usePipes: true,
+      historyDir: HISTORY_DIR,
+    });
+  });
+
+  afterEach(() => {
+    manager.destroyAll();
+    try { fs.rmSync(TEST_DIR, { recursive: true, force: true }); } catch {}
+  });
+
+  it('returns found:false for project with no history', async () => {
+    const m = mockRoute('GET', '/v2/session/last', { project: 'no-history' });
+    await handleV2Route({ ...m, sessionManager: manager });
+    expect(m.captured().body.found).toBe(false);
+  });
+
+  it('returns completed session data after session ends', async () => {
+    const session = manager.start('hist-test');
+    session.eventLog.appendText('did some work\n  Tests  5 passed (5)\n');
+    session.transition('completed');
+    // The PTY exit handler would call _snapshotSession; simulate it
+    manager._snapshotSession(session);
+
+    const m = mockRoute('GET', '/v2/session/last', { project: 'hist-test' });
+    await handleV2Route({ ...m, sessionManager: manager });
+
+    const result = m.captured().body;
+    expect(result.found).toBe(true);
+    expect(result.sessionId).toBe(session.sessionId);
+    expect(result.state).toBe('completed');
+    expect(result.transcript).toContain('did some work');
+    expect(result.testResult).not.toBeNull();
+    expect(result.testResult.runner).toBe('vitest');
+    expect(result.testResult.passed).toBe(5);
+  });
+
+  it('persists history to disk and reloads', async () => {
+    const session = manager.start('persist-test');
+    session.eventLog.appendText('persisted output\n');
+    session.transition('completed');
+    manager._snapshotSession(session);
+
+    // Verify file on disk
+    const histFile = path.join(HISTORY_DIR, 'persist-test.json');
+    expect(fs.existsSync(histFile)).toBe(true);
+
+    // Create a new manager that loads from disk
+    const manager2 = new SessionManager({
+      projectsDir: TEST_DIR,
+      claudeBin: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
+      usePipes: true,
+      historyDir: HISTORY_DIR,
+    });
+
+    const snapshot = manager2.getLastCompleted('persist-test');
+    expect(snapshot).not.toBeNull();
+    expect(snapshot.transcript).toContain('persisted output');
+    manager2.destroyAll();
+  });
+
+  it('strips ANSI with clean=true', async () => {
+    const session = manager.start('clean-last');
+    session.eventLog.appendText('\x1b[32mgreen\x1b[0m\n');
+    session.transition('completed');
+    manager._snapshotSession(session);
+
+    const m = mockRoute('GET', '/v2/session/last', { project: 'clean-last', clean: 'true' });
+    await handleV2Route({ ...m, sessionManager: manager });
+    expect(m.captured().body.transcript).not.toContain('\x1b[');
+    expect(m.captured().body.transcript).toContain('green');
+  });
+
+  it('returns 400 without project param', async () => {
+    const m = mockRoute('GET', '/v2/session/last', {});
+    await handleV2Route({ ...m, sessionManager: manager });
+    expect(m.captured().status).toBe(400);
+  });
 });

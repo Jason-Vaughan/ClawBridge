@@ -412,6 +412,31 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
     return true;
   }
 
+  // GET /v2/session/last — most recent completed session for a project
+  // Survives bridge restarts (persisted to disk). Returns transcript, test result, timing.
+  if (method === 'GET' && pathname === '/v2/session/last') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      json(res, 400, { error: 'project query parameter is required' });
+      return true;
+    }
+
+    const snapshot = sessionManager.getLastCompleted(project);
+    if (!snapshot) {
+      json(res, 200, { ok: true, project, found: false });
+      return true;
+    }
+
+    const clean = url.searchParams.get('clean') === 'true';
+    const response = { ...snapshot, ok: true, found: true };
+    if (clean && response.transcript) {
+      response.transcript = stripAnsi(response.transcript);
+    }
+
+    json(res, 200, response);
+    return true;
+  }
+
   // GET /v2/api-docs — self-describing API reference for all v2 endpoints
   if (method === 'GET' && pathname === '/v2/api-docs') {
     json(res, 200, getApiDocs());
@@ -574,6 +599,16 @@ function getApiDocs() {
           clean: { type: 'string', required: false, description: 'Set to "true" to strip ANSI escape codes (default: raw)' },
         },
         returns: 'transcript (raw or cleaned text), state, active',
+      },
+      {
+        method: 'GET',
+        path: '/v2/session/last',
+        description: 'Most recent completed session for a project. Survives bridge restarts (persisted to disk).',
+        query: {
+          project: { type: 'string', required: true },
+          clean: { type: 'string', required: false, description: 'Set to "true" to strip ANSI escape codes from transcript' },
+        },
+        returns: 'found, sessionId, state, exitCode, startedAt, endedAt, transcript, testResult, eventCount',
       },
       {
         method: 'POST',

@@ -310,7 +310,7 @@ If [prawduct](https://github.com/brookst/prawduct) is installed on the host, Cla
 ## Testing
 
 ```bash
-# Run all tests (469 across 18 files)
+# Run all tests (475 across 18 files)
 npm test
 
 # Run with live E2E (requires Claude Code installed)

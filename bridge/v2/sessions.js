@@ -183,6 +183,91 @@ class SessionManager {
     this._defaultSessionTimeoutMs = options.sessionTimeoutMs || DEFAULT_SESSION_TIMEOUT_MS;
     /** @type {Map<string, Session>} keyed by project name */
     this._sessions = new Map();
+    /** @type {string|null} Directory for persisting session history */
+    this._historyDir = options.historyDir || null;
+    /** @type {Map<string, object>} Last completed session snapshot per project */
+    this._history = new Map();
+    /** Maximum history entries to keep per project (only last N are on disk) */
+    this._maxHistory = options.maxHistory || 1;
+
+    // Load history from disk on startup
+    if (this._historyDir) {
+      this._loadHistory();
+    }
+  }
+
+  /**
+   * Load session history from disk.
+   * @private
+   */
+  _loadHistory() {
+    if (!this._historyDir) return;
+    try {
+      if (!fs.existsSync(this._historyDir)) return;
+      const files = fs.readdirSync(this._historyDir).filter(f => f.endsWith('.json'));
+      for (const file of files) {
+        try {
+          const data = JSON.parse(fs.readFileSync(path.join(this._historyDir, file), 'utf8'));
+          if (data.project) {
+            this._history.set(data.project, data);
+          }
+        } catch { /* skip corrupt files */ }
+      }
+    } catch { /* directory unreadable */ }
+  }
+
+  /**
+   * Snapshot a completed session and persist to disk.
+   * @param {Session} session
+   */
+  _snapshotSession(session) {
+    const { detectTestResult } = require('./routes');
+    const snapshot = {
+      sessionId: session.sessionId,
+      project: session.project,
+      state: session.state,
+      exitCode: session.exitCode,
+      startedAt: session.createdAt,
+      endedAt: session.updatedAt,
+      cursor: session.eventLog.cursor,
+      transcript: session.eventLog.getTranscript(),
+      testResult: detectTestResult(session.eventLog),
+      eventCount: session.eventLog.length,
+    };
+    this._history.set(session.project, snapshot);
+
+    // Persist to disk
+    if (this._historyDir) {
+      try {
+        if (!fs.existsSync(this._historyDir)) {
+          fs.mkdirSync(this._historyDir, { recursive: true });
+        }
+        const filename = `${session.project}.json`;
+        fs.writeFileSync(
+          path.join(this._historyDir, filename),
+          JSON.stringify(snapshot, null, 2)
+        );
+      } catch (err) {
+        console.error(`[v2/history] Failed to persist snapshot for ${session.project}:`, err.message);
+      }
+    }
+  }
+
+  /**
+   * Get the last completed session snapshot for a project.
+   * @param {string} project
+   * @returns {object|null}
+   */
+  getLastCompleted(project) {
+    return this._history.get(project) || null;
+  }
+
+  /**
+   * List all projects with completed session history.
+   * @returns {string[]}
+   */
+  listHistory() {
+    return Array.from(this._history.keys());
   }
 
   /**
@@ -461,6 +546,11 @@ class SessionManager {
         });
         session.pendingPermission = null;
         session.transition(SessionState.FAILED);
+      }
+
+      // Snapshot completed session for post-run retrieval
+      if (session.isTerminal) {
+        this._snapshotSession(session);
       }
     });
 
@@ -874,6 +964,9 @@ class SessionManager {
     if (session.state !== SessionState.ENDED) {
       session.transition(SessionState.ENDED);
     }
+
+    // Snapshot before cleanup destroys the PTY and event log
+    this._snapshotSession(session);
 
     // Clean up timers, PTY, and event log waiters
     session.clearAllTimers();
