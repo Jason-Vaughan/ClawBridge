@@ -355,6 +355,13 @@ ClawBridge/
 | [Bug Index](docs/bridge-v2-bug-index.md) | All 13 known bugs with regression test mappings |
 | [Regression Checklist](docs/bridge-v2-regression-checklist.md) | What to verify after any change |
 
+## Related Projects
+
+- **[OpenClaw](https://github.com/openclaw/openclaw)** — AI agent platform. ClawBridge was built to let OpenClaw drive Claude Code sessions on a remote host.
+- **[TangleClaw](https://github.com/Jason-Vaughan/TangleClaw)** — Multi-engine session orchestrator with persistent tmux sessions, mobile access, and sidecar polling via ClawBridge's `/api/processes` endpoint.
+- **[PortHub](https://github.com/Jason-Vaughan/PortHub)** — Port registry for development environments. Prevents port conflicts when running ClawBridge alongside other services.
+- **[prawduct](https://github.com/brookst/prawduct)** — Project governance framework. ClawBridge can optionally expose prawduct lifecycle commands via `/prawduct/run`.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
