@@ -4,15 +4,15 @@
 
 # ClawBridge
 
-A host-side HTTP bridge that exposes [Claude Code](https://claude.ai/claude-code) as a supervised build tool for automation systems like [OpenClaw](https://github.com/openclaw). It runs on the host machine and provides a JSON API for spawning, managing, and interacting with Claude Code sessions — with structured permission review, live output streaming, and test result detection.
+A host-side HTTP bridge that exposes [Claude Code](https://claude.ai/claude-code) as a supervised build tool for automation systems. It runs on the host machine and provides a JSON API for spawning, managing, and interacting with Claude Code sessions — with structured permission review, live output streaming, and test result detection.
 
 ## What Problem It Solves
 
-OpenClaw runs its own AI engine inside a Docker container. It acts as the **architect** — deciding what to build and why. But it needs a **builder** that can write code, run tests, and interact with the filesystem on the host.
+AI orchestrators (running inside Docker containers, remote servers, etc.) often need a **builder** that can write code, run tests, and interact with the host filesystem. Claude Code is an excellent builder, but it runs on the host as a CLI tool — not inside the container.
 
-Claude Code is an excellent builder, but it runs on the host as a CLI tool — not inside the container. ClawBridge sits on the host as a lightweight HTTP service that bridges the gap, letting the orchestrator invoke Claude Code as a build tool while maintaining structured permission oversight.
+ClawBridge sits on the host as a lightweight HTTP service that bridges the gap, letting any orchestrator invoke Claude Code as a build tool while maintaining structured permission oversight.
 
-> **Note on Anthropic's third-party policy:** In January 2026, Anthropic [banned the use of Claude subscription OAuth tokens (Pro/Max) in third-party tools](https://www.theregister.com/2026/02/20/anthropic_clarifies_ban_third_party_claude_access/) — this was about token arbitrage, where third-party harnesses routed through cheaper subscription auth instead of API pricing. ClawBridge does **not** do this. It invokes Claude Code on the host as a build tool using proper API key authentication (`claude setup-token`), which is the [explicitly permitted path](https://code.claude.com/docs/en/legal-and-compliance) for developers building products that interact with Claude. ClawBridge does not replace OpenClaw's engine, spoof Claude Code's harness, or use subscription credentials — it's a tool invocation bridge, not an engine substitution.
+> **Note on Anthropic's third-party policy:** In January 2026, Anthropic [banned the use of Claude subscription OAuth tokens (Pro/Max) in third-party tools](https://www.theregister.com/2026/02/20/anthropic_clarifies_ban_third_party_claude_access/) — this was about token arbitrage, where third-party harnesses routed through cheaper subscription auth instead of API pricing. ClawBridge does **not** do this. It invokes Claude Code on the host as a build tool using proper API key authentication (`claude setup-token`), which is the [explicitly permitted path](https://code.claude.com/docs/en/legal-and-compliance) for developers building products that interact with Claude. ClawBridge does not spoof Claude Code's harness or use subscription credentials — it's a tool invocation bridge, not an engine substitution.
 
 ## How It Works
 
@@ -20,7 +20,7 @@ ClawBridge spawns Claude Code in a real PTY (pseudo-terminal), detects permissio
 
 ```
 +--------------------------------------+
-|  Orchestrator (e.g. OpenClaw)        |
+|  Orchestrator                        |
 |  Role: Architect / Reviewer          |
 |                                      |
 |  Drives builds via HTTP calls        |
@@ -175,7 +175,7 @@ All endpoints require `Authorization: Bearer <token>` except `/health`.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/health` | Bridge status, Claude version |
-| `GET` | `/api/processes` | Sidecar process visibility (for TangleClaw polling) |
+| `GET` | `/api/processes` | Process visibility for external orchestrators |
 | `GET` | `/projects` | List projects |
 | `GET` | `/projects/:project/files` | List project files (`?recursive=true`, `?path=subdir`) |
 | `GET` | `/projects/:project/files/*` | Serve a specific file |
@@ -299,13 +299,13 @@ On macOS Docker Desktop, `host.docker.internal` resolves automatically.
 
 ## Integrations
 
-### TangleClaw orchestrator
+### Orchestrator polling
 
-ClawBridge integrates with [TangleClaw](https://github.com/Jason-Vaughan/TangleClaw) — a multi-project orchestration platform that manages sessions, port assignments, shared documents, and project governance across multiple AI-powered projects. When TangleClaw is running, ClawBridge registers its port lease and reports active session state for sidecar polling via `GET /api/processes`. TangleClaw integration is optional — ClawBridge works standalone.
+External orchestrators can poll `GET /api/processes` to monitor active and recently completed sessions. This provides a lightweight sidecar integration point — no registration required, just poll the endpoint. ClawBridge works standalone or as part of a larger multi-project orchestration platform.
 
-### prawduct governance
+### Governance tools
 
-If [prawduct](https://github.com/brookst/prawduct) is installed on the host, ClawBridge exposes prawduct lifecycle commands (setup, sync, validate) via the `/prawduct/run` endpoint. This powers structured build governance (discovery, planning, building, Critic review) for projects managed through TangleClaw. This integration is optional.
+If a governance tool (e.g., [prawduct](https://github.com/brookst/prawduct)) is installed on the host, ClawBridge can expose lifecycle commands (setup, sync, validate) via the `/prawduct/run` endpoint. This integration is optional.
 
 ## Testing
 
@@ -344,7 +344,6 @@ ClawBridge/
     bridge-v2-pty-broker-spec.md
     bridge-v2-bug-index.md
     bridge-v2-regression-checklist.md
-    clawbridge-overview.md
 ```
 
 ## Documentation
@@ -355,7 +354,6 @@ ClawBridge/
 | [PTY Broker Spec](docs/bridge-v2-pty-broker-spec.md) | Design spec for the permission broker |
 | [Bug Index](docs/bridge-v2-bug-index.md) | All 13 known bugs with regression test mappings |
 | [Regression Checklist](docs/bridge-v2-regression-checklist.md) | What to verify after any change |
-| [ClawBridge Overview](docs/clawbridge-overview.md) | Architecture overview and full API reference |
 
 ## License
 

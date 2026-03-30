@@ -1,7 +1,7 @@
 # Bridge v2 PTY Permission-Broker Spec
 
 **Status:** Implemented (2026-03-24)
-**Audience:** ClawBridge implementers, OpenClaw orchestration layer, NHE-ITL reviewer
+**Audience:** ClawBridge implementers and orchestrator developers
 **Goal:** Replace blanket `bypassPermissions` execution with interactive Claude Code PTY mediation, structured permission review, and resumable polling.
 
 ---
@@ -11,13 +11,13 @@
 Bridge v2 runs Claude Code in an interactive PTY-backed session on the host instead of using one-shot non-interactive `--print` execution. The bridge becomes a broker between:
 
 - **Claude Code** running on the host in a PTY
-- **The NHE-ITL** (the reviewing agent) making permission decisions
+- **The orchestrator** (the reviewing agent) making permission decisions
 - **The project workspace** managed under prawduct governance
 
 Primary objectives:
 
 1. Remove blanket permission bypass for builder sessions
-2. Allow the NHE-ITL to review permission requests at the action level
+2. Allow the orchestrator to review permission requests at the action level
 3. Preserve persistent session memory and governance lifecycle
 4. Support resumable polling without requiring inbound callbacks
 5. Allow safe session-level policy envelopes to reduce unnecessary review churn
@@ -151,7 +151,7 @@ timed_out -> ended                       (cleanup performed)
 
 #### Shell command
 ```json
-{ "command": "npm install better-sqlite3", "cwd": "~/.openclaw/projects/my-project" }
+{ "command": "npm install better-sqlite3", "cwd": "~/projects/my-project" }
 ```
 
 #### Network access
@@ -189,7 +189,7 @@ The client may attach a session-level approval envelope when starting a session 
 ```json
 {
   "mode": "scoped",
-  "projectRoot": "~/.openclaw/projects/my-project",
+  "projectRoot": "~/projects/my-project",
   "rules": {
     "fileWrites": {
       "withinProject": "auto_approve",
@@ -271,11 +271,11 @@ Start a fresh PTY-backed Claude Code session for a project.
 ```json
 {
   "project": "my-project",
-  "cwd": "~/.openclaw/projects/my-project",
+  "cwd": "~/projects/my-project",
   "timeout": 1800000,
   "approvalEnvelope": {
     "mode": "scoped",
-    "projectRoot": "~/.openclaw/projects/my-project",
+    "projectRoot": "~/projects/my-project",
     "rules": {
       "fileWrites": {
         "withinProject": "auto_approve",
@@ -514,7 +514,7 @@ Update the approval envelope for an active session.
   "project": "my-project",
   "approvalEnvelope": {
     "mode": "scoped",
-    "projectRoot": "~/.openclaw/projects/my-project",
+    "projectRoot": "~/projects/my-project",
     "rules": {
       "fileWrites": {
         "withinProject": "auto_approve",
@@ -753,7 +753,7 @@ The event log is the canonical audit trail and MUST contain:
 ```json
 {
   "mode": "scoped",
-  "projectRoot": "~/.openclaw/projects/my-project",
+  "projectRoot": "~/projects/my-project",
   "rules": {
     "fileWrites": {
       "withinProject": "auto_approve",
@@ -832,4 +832,4 @@ Implement this as **Bridge v2 polling-first PTY broker** with:
 - session-level approval envelope
 - fail-closed handling for unknown/high-risk actions
 
-This gives the NHE-ITL real review authority without requiring a blanket bypass flag, while preserving persistent session workflows and governance handoff.
+This gives the orchestrator real review authority without requiring a blanket bypass flag, while preserving persistent session workflows and governance handoff.

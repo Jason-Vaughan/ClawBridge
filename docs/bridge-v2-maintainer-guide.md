@@ -1,15 +1,12 @@
 # Bridge v2 Maintainer Guide
 
-This guide is for anyone maintaining the bridge v2 PTY broker — human or NHE-ITL. It covers architecture, data flow, known fragility, and operational norms.
+This guide is for anyone maintaining the bridge v2 PTY broker. It covers architecture, data flow, known fragility, and operational norms.
 
 ## What the bridge does
 
-ClawBridge is an HTTP server running on habitat (port 3201) that lets OpenClaw drive Claude Code sessions. It has two modes:
+ClawBridge is an HTTP server (default port 3201) that lets an orchestrator drive Claude Code sessions via the v2 PTY broker API.
 
-- **v1 (legacy):** Fire-and-forget. Spawns Claude Code with `--print --dangerously-skip-permissions`, collects stdout, returns it. No permission review. Routes: `/claude/run`, `/session/send`, `/session/end`.
-- **v2 (PTY broker):** Interactive. Spawns Claude Code in a real PTY, detects permission prompts from the TUI output, and lets OpenClaw approve/deny each one. Routes: `/v2/session/*`.
-
-v2 is the active system. v1 still works for simple one-shot tasks.
+- **v2 (PTY broker):** Interactive. Spawns Claude Code in a real PTY, detects permission prompts from the TUI output, and lets the orchestrator approve/deny each one. Routes: `/v2/session/*`.
 
 ## File map
 
@@ -38,7 +35,7 @@ bridge/
 | `event-log.js` | Event storage, cursor reads, long-poll, transcript | `types.js` |
 | `sessions.js` | Session state machine, PTY lifecycle, timers, trust prompt, permission flow, send/end | Everything above |
 | `routes.js` | HTTP request handling, validation, error codes | `sessions.js` |
-| `server.js` | Glue: HTTP server, auth, v1 routes, v2 delegation, circuit breaker, shutdown | `sessions.js`, `routes.js` |
+| `server.js` | Glue: HTTP server, auth, v2 delegation, shutdown | `sessions.js`, `routes.js` |
 
 ## Data flow: permission detection pipeline
 
@@ -118,10 +115,10 @@ Claude Code PTY
 │      - Set pendingPermission on session                      │
 │      - Transition to WAITING_FOR_PERMISSION                  │
 │      - Start prompt timer (5 min default)                    │
-│      - Wait for respond() call from OpenClaw                 │
+│      - Wait for respond() call from orchestrator              │
 └───────────────────────────────────────────────���──────────────┘
        │
-       ▼ (if require_review) OpenClaw calls POST /v2/session/respond
+       ▼ (if require_review) orchestrator calls POST /v2/session/respond
 ┌─────────────────────────────────────��────────────────────���───┐
 │  sessions.js: SessionManager.respond()                       │
 │                                                              │
@@ -171,7 +168,7 @@ Claude Code PTY
 
 ## Approval envelope structure
 
-The envelope is OpenClaw's way of telling the bridge which permissions to auto-handle vs. pause for review.
+The envelope is the orchestrator's way of telling the bridge which permissions to auto-handle vs. pause for review.
 
 ```json
 {
@@ -338,7 +335,7 @@ All logic that reasons about session liveness must use `session.isTerminal` (whi
 - **Port:** Configured via `BRIDGE_PORT` in `.env` (default: 3201)
 - **Process manager:** launchd on macOS (`com.clawbridge.builder`), systemd on Linux
 - **Auth token:** `<deploy-dir>/.env` (`BRIDGE_TOKEN`)
-- **Projects directory:** `~/.openclaw/projects/`
+- **Projects directory:** Configured via `PROJECTS_DIR` env var
 
 ### Common operations
 
@@ -357,7 +354,7 @@ ssh <host> "launchctl stop com.clawbridge.builder"
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3201/v2/sessions | jq .
 
 # Clean up test project
-rm -rf ~/.openclaw/projects/bridge-v2-smoke
+rm -rf $PROJECTS_DIR/bridge-v2-smoke
 ```
 
 ### Circuit breaker
@@ -385,6 +382,6 @@ Any maintenance run on the bridge should follow these rules:
    scp bridge/v2/permission-parser.js.bak <host>:<deploy-dir>/bridge/v2/permission-parser.js
    ssh <host> "launchctl stop com.clawbridge.builder"
    ```
-6. **Human-visible summary.** Before any deployment, produce a summary of what changed and why. The reviewer (human or NHE-ITL) should be able to understand the change without reading the diff.
+6. **Human-visible summary.** Before any deployment, produce a summary of what changed and why. The reviewer should be able to understand the change without reading the diff.
 7. **Don't change ANSI stripping or input injection casually.** These are the two areas where "works in tests, fails in live PTY" is most likely. Changes to `stripAnsi()`, `CONFIRMATION_PATTERN`, `PROMPT_PATTERNS`, or any `pty.write()` call should be accompanied by a live E2E smoke run.
 8. **Live E2E smoke run for any parser/timing change.** Any change touching parser logic, ANSI normalization, trust buffering, or PTY input timing must get one live E2E smoke run before being considered done. Unit tests are necessary but not sufficient for these areas — the E2E campaign proved this repeatedly across 9 rounds.

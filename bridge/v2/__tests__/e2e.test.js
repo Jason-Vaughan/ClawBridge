@@ -1,7 +1,7 @@
 /**
  * End-to-end integration tests for bridge v2 PTY broker.
  *
- * These tests run against a REAL Claude Code binary on habitat.
+ * These tests run against a REAL Claude Code binary on the host.
  * They are gated behind the RUN_E2E environment variable.
  *
  * To run:
@@ -124,7 +124,7 @@ describeE2E('E2E: bridge v2 full lifecycle', () => {
     manager = new SessionManager({
       projectsDir: PROJECTS_DIR,
       claudeBin: CLAUDE_BIN,
-      // Do NOT set usePipes — we want real PTY on habitat
+      // Do NOT set usePipes — we want real PTY
       promptTimeoutMs: 60_000,    // 1 min for E2E
       sessionTimeoutMs: 120_000,  // 2 min for E2E
     });

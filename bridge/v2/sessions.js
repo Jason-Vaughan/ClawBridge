@@ -386,7 +386,7 @@ class SessionManager {
             } catch { /* PTY may have exited */ }
           }, 500);
         } else {
-          // Require review: pause for human/NHE-ITL decision
+          // Require review: pause for human/orchestrator decision
           permEvent.timeoutAt = new Date(Date.now() + session.promptTimeoutMs).toISOString();
           session.pendingPermission = permEvent;
           if (session.state === SessionState.RUNNING) {
@@ -925,7 +925,7 @@ class SessionManager {
     }
 
     const wrapMessage = options.message ||
-      'Session is ending. Complete any pending reflection, critic review, or governance tasks now. Write a session handoff to .prawduct/.session-handoff.md summarizing what was done and what remains.';
+      'Session is ending. Complete any pending work and summarize what was done and what remains.';
 
     // If session is still running, send wrap message and wait for exit
     if (session.state === SessionState.RUNNING && session.pty && !session.pty.exited) {

@@ -527,7 +527,7 @@ function getApiDocs() {
         path: '/v2/session/start',
         description: 'Start a new PTY-backed Claude Code session for a project.',
         body: {
-          project: { type: 'string', required: true, description: 'Project name (maps to directory under ~/.openclaw/projects/)' },
+          project: { type: 'string', required: true, description: 'Project name (maps to directory under PROJECTS_DIR)' },
           instruction: { type: 'string', required: false, description: 'Initial instruction/prompt to send to Claude Code' },
           approvalEnvelope: { type: 'object', required: false, description: 'Policy rules for auto-approving/denying permission prompts' },
           timeout: { type: 'number', required: false, description: 'Session runtime timeout in ms (default: 30 min)' },
@@ -649,7 +649,7 @@ function getApiDocs() {
       },
     ],
     quickstart: {
-      description: 'Typical workflow for an OpenClaw assistant session:',
+      description: 'Typical workflow for an orchestrator session:',
       steps: [
         '1. POST /v2/session/start { project, instruction, approvalEnvelope }',
         '2. Poll GET /v2/session/peek?project=X to monitor progress',
@@ -664,7 +664,7 @@ function getApiDocs() {
       'One active session per project at a time. Start returns 409 if session already running.',
       'Permission prompts auto-timeout after promptTimeout ms (default 5 min) if not responded to.',
       'Sessions auto-timeout after timeout ms (default 30 min).',
-      '/prawduct/run still available for governance lifecycle commands (setup, sync, validate).',
+      '/prawduct/run available for optional governance lifecycle commands (setup, sync, validate).',
     ],
   };
 }

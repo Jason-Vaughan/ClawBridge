@@ -29,8 +29,8 @@ if (fs.existsSync(envFile)) {
 
 const PORT = parseInt(process.env.BRIDGE_PORT || '3201', 10);
 const TOKEN = process.env.BRIDGE_TOKEN || '';
-const HOME = process.env.HOME || '/Users/habitat-admin';
-const PROJECTS_DIR = path.join(HOME, '.openclaw', 'projects');
+const HOME = process.env.HOME || '';
+const PROJECTS_DIR = process.env.PROJECTS_DIR || path.join(HOME, 'projects');
 const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
 const CLAUDE_BIN = '/usr/local/bin/claude';
 const PRAWDUCT_SETUP = path.join(PRAWDUCT_DIR, 'tools', 'prawduct-setup.py');
@@ -58,13 +58,12 @@ function resolvePythonBin() {
 }
 
 const PYTHON_BIN = resolvePythonBin();
-const TANGLECLAW_URL = process.env.TANGLECLAW_URL || 'https://192.168.10.99:3102';
-const EXPORTS_DIR = path.join(HOME, '.openclaw', 'exports');
+const EXPORTS_DIR = process.env.EXPORTS_DIR || path.join(HOME, 'exports');
 
 const DEFAULT_TIMEOUT = 300000; // 5 min
 const MAX_TIMEOUT = 1800000;    // 30 min
 
-// ── Process Registry (for sidecar visibility) ──
+// ── Process Registry (for external polling / sidecar visibility) ──
 
 /** @type {Map<string, object>} Active/recent process entries keyed by run ID */
 const _processRegistry = new Map();
@@ -645,7 +644,7 @@ const server = http.createServer(async (req, res) => {
       if (handled) return;
     }
 
-    // GET /api/processes — sidecar process visibility
+    // GET /api/processes — process visibility for external orchestrators
     if (method === 'GET' && pathname === '/api/processes') {
       const data = buildProcessesResponse();
       return json(res, 200, data);
@@ -664,7 +663,6 @@ const server = http.createServer(async (req, res) => {
         claude: claudeVersion,
         prawduct: prawductExists ? 'available' : 'not found',
         projectsDir: PROJECTS_DIR,
-        tangleclaw: TANGLECLAW_URL,
         activeSessions: v2SessionManager.activeCount
       });
     }
@@ -784,7 +782,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`ClawBridge listening on 0.0.0.0:${PORT}`);
   console.log(`  Claude: ${CLAUDE_BIN}`);
   console.log(`  Python: ${PYTHON_BIN}`);
-  console.log(`  Prawduct: ${PRAWDUCT_SETUP}`);
+  if (fs.existsSync(PRAWDUCT_SETUP)) console.log(`  Prawduct: ${PRAWDUCT_SETUP}`);
   console.log(`  Projects: ${PROJECTS_DIR}`);
   console.log(`  Auth: ${TOKEN ? 'Bearer token required' : 'OPEN (no token set)'}`);
   console.log(`  v2 PTY broker: enabled`);

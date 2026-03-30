@@ -23,7 +23,7 @@ describe('/prawduct/run argv contract', () => {
    * @param {string} projectsDir - Default projects directory
    * @returns {string[]} argv passed to runCommand (excluding PYTHON_BIN)
    */
-  function buildPrawductArgs(body, projectsDir = '/home/user/.openclaw/projects') {
+  function buildPrawductArgs(body, projectsDir = '/home/user/projects') {
     const workDir = body.workDir || projectsDir;
     const args = [PRAWDUCT_SETUP, body.command, workDir];
     if (body.args && Array.isArray(body.args)) {
@@ -35,54 +35,54 @@ describe('/prawduct/run argv contract', () => {
   it('passes workDir as positional target_dir for setup', () => {
     const args = buildPrawductArgs({
       command: 'setup',
-      workDir: '/home/user/.openclaw/projects/my-project',
+      workDir: '/home/user/projects/my-project',
     });
     expect(args).toEqual([
       PRAWDUCT_SETUP,
       'setup',
-      '/home/user/.openclaw/projects/my-project',
+      '/home/user/projects/my-project',
     ]);
   });
 
   it('passes workDir as positional target_dir for validate', () => {
     const args = buildPrawductArgs({
       command: 'validate',
-      workDir: '/home/user/.openclaw/projects/my-project',
+      workDir: '/home/user/projects/my-project',
     });
     expect(args).toEqual([
       PRAWDUCT_SETUP,
       'validate',
-      '/home/user/.openclaw/projects/my-project',
+      '/home/user/projects/my-project',
     ]);
   });
 
   it('passes workDir as positional target_dir for sync', () => {
     const args = buildPrawductArgs({
       command: 'sync',
-      workDir: '/home/user/.openclaw/projects/my-project',
+      workDir: '/home/user/projects/my-project',
     });
     expect(args).toEqual([
       PRAWDUCT_SETUP,
       'sync',
-      '/home/user/.openclaw/projects/my-project',
+      '/home/user/projects/my-project',
     ]);
   });
 
   it('defaults workDir to projectsDir when not provided', () => {
     const args = buildPrawductArgs({ command: 'validate' });
-    expect(args[2]).toBe('/home/user/.openclaw/projects');
+    expect(args[2]).toBe('/home/user/projects');
   });
 
   it('appends extra args after target_dir', () => {
     const args = buildPrawductArgs({
       command: 'setup',
-      workDir: '/home/user/.openclaw/projects/my-project',
+      workDir: '/home/user/projects/my-project',
       args: ['--name', 'My Project', '--force'],
     });
     expect(args).toEqual([
       PRAWDUCT_SETUP,
       'setup',
-      '/home/user/.openclaw/projects/my-project',
+      '/home/user/projects/my-project',
       '--name', 'My Project', '--force',
     ]);
   });

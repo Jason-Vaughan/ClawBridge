@@ -88,7 +88,7 @@ Use this as a quick regression reference after any bridge v2 PTY broker change.
 
 ## 12) Trust prompt misclassified as unknown permission after safety valve
 - **What broke:** Starting a v2 session on a new/untrusted project triggered immediate session interruption.
-- **How it manifested:** OpenClaw's supervised maintenance trial was blocked at startup — the trust prompt ("Yes, I trust this folder" / "Esc to cancel") was treated as an unknown permission and auto-denied.
+- **How it manifested:** A supervised maintenance trial was blocked at startup — the trust prompt ("Yes, I trust this folder" / "Esc to cancel") was treated as an unknown permission and auto-denied.
 - **Root cause:** Claude Code's startup ANSI output exceeded the 2KB safety valve threshold before the trust prompt rendered. Safety valve fired, set `trustPromptHandled=true`, flushed buffer to permission parser. When the trust prompt arrived, "Esc to cancel" matched `CONFIRMATION_PATTERN`, no `PROMPT_PATTERNS` matched → emitted `unknown` → policy denied.
 - **What to check:** Starting a v2 session on a new/untrusted project directory auto-confirms the trust prompt without triggering a permission event; the safety valve threshold (now 8KB) + grace period (5s) handles late-arriving trust prompts.
 

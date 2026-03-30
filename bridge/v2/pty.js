@@ -21,7 +21,7 @@ const nodePty = loadNodePty();
  * Wrapper around node-pty (or child_process fallback) that provides a clean
  * event interface for spawning and interacting with PTY processes.
  *
- * In production (habitat), uses node-pty for full PTY semantics.
+ * In production, uses node-pty for full PTY semantics.
  * When node-pty is unavailable or usePipes option is set, falls back to
  * child_process.spawn with piped stdio.
  *
