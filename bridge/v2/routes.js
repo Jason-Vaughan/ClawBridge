@@ -1,6 +1,7 @@
 'use strict';
 
 const { SessionManager } = require('./sessions');
+const { stripAnsi } = require('./permission-parser');
 
 /**
  * Handle v2 API routes. Returns true if the route was handled, false otherwise.
@@ -271,39 +272,6 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
     return true;
   }
 
-  // GET /v2/session/transcript
-  if (method === 'GET' && pathname === '/v2/session/transcript') {
-    const project = url.searchParams.get('project');
-    if (!project) {
-      json(res, 400, { error: 'project query parameter is required' });
-      return true;
-    }
-
-    const session = sessionManager.get(project);
-    if (!session) {
-      const known = sessionManager.list().map(s => s.project);
-      console.error(`[v2/transcript] No session for '${project}' — known projects: [${known.join(', ')}]`);
-      json(res, 404, { error: `No session for project '${project}'` });
-      return true;
-    }
-
-    // Only allow transcript export for terminal/ended sessions
-    if (!session.isTerminal) {
-      json(res, 404, { error: `Session for project '${project}' is still active (state: ${session.state}) — transcript only available after session ends` });
-      return true;
-    }
-
-    const transcript = session.eventLog.getTranscript();
-    json(res, 200, {
-      ok: true,
-      project: session.project,
-      sessionId: session.sessionId,
-      state: session.state,
-      transcript,
-    });
-    return true;
-  }
-
   // GET /v2/session/status
   if (method === 'GET' && pathname === '/v2/session/status') {
     const project = url.searchParams.get('project');
@@ -316,10 +284,12 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
     if (!session) {
       json(res, 200, { ok: true, project, active: false });
     } else {
+      const inputReady = session.state === 'running' && !!session.pty && !session.pty.exited;
       const statusObj = {
         ok: true,
         project,
         active: !session.isTerminal,
+        inputReady,
         sessionId: session.sessionId,
         state: session.state,
         startedAt: session.createdAt,
@@ -350,7 +320,318 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
     return true;
   }
 
+  // GET /v2/session/peek — convenience snapshot of a running session
+  // Returns state, pending permission, last N lines of output, and test detection.
+  // No cursor management needed — designed for operators checking in.
+  if (method === 'GET' && pathname === '/v2/session/peek') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      json(res, 400, { error: 'project query parameter is required' });
+      return true;
+    }
+
+    const session = sessionManager.get(project);
+    if (!session) {
+      json(res, 200, { ok: true, project, active: false });
+      return true;
+    }
+
+    const tailLines = parseInt(url.searchParams.get('lines') || '30', 10);
+    const clean = url.searchParams.get('clean') === 'true';
+
+    // Build the raw transcript and extract tail lines
+    const rawTranscript = session.eventLog.getTranscript();
+    const transcript = clean ? stripAnsi(rawTranscript) : rawTranscript;
+    const allLines = transcript.split('\n');
+    const tail = allLines.slice(-Math.max(1, tailLines)).join('\n');
+
+    // Scan text events for test runner output patterns
+    const testResult = detectTestResult(session.eventLog);
+
+    // inputReady: can POST /v2/session/send succeed right now?
+    // true only when running + PTY alive + not waiting for permission
+    const inputReady = session.state === 'running' && !!session.pty && !session.pty.exited;
+
+    const peekResponse = {
+      ok: true,
+      project: session.project,
+      sessionId: session.sessionId,
+      state: session.state,
+      active: !session.isTerminal,
+      inputReady,
+      startedAt: session.createdAt,
+      lastActivity: session.updatedAt,
+      cursor: session.eventLog.cursor,
+      tail,
+      tailLineCount: Math.min(tailLines, allLines.length),
+      totalLines: allLines.length,
+      testResult,
+    };
+
+    if (session.pendingPermission) {
+      peekResponse.pendingPermission = {
+        id: session.pendingPermission.id,
+        permissionType: session.pendingPermission.permissionType,
+        risk: session.pendingPermission.risk,
+        target: session.pendingPermission.target,
+        timeoutAt: session.pendingPermission.timeoutAt || null,
+      };
+    }
+
+    json(res, 200, peekResponse);
+    return true;
+  }
+
+  // GET /v2/session/transcript — available for both active and ended sessions
+  if (method === 'GET' && pathname === '/v2/session/transcript') {
+    const project = url.searchParams.get('project');
+    if (!project) {
+      json(res, 400, { error: 'project query parameter is required' });
+      return true;
+    }
+
+    const session = sessionManager.get(project);
+    if (!session) {
+      const known = sessionManager.list().map(s => s.project);
+      console.error(`[v2/transcript] No session for '${project}' — known projects: [${known.join(', ')}]`);
+      json(res, 404, { error: `No session for project '${project}'` });
+      return true;
+    }
+
+    const clean = url.searchParams.get('clean') === 'true';
+    const rawTranscript = session.eventLog.getTranscript();
+    const transcript = clean ? stripAnsi(rawTranscript) : rawTranscript;
+    json(res, 200, {
+      ok: true,
+      project: session.project,
+      sessionId: session.sessionId,
+      state: session.state,
+      active: !session.isTerminal,
+      transcript,
+    });
+    return true;
+  }
+
+  // GET /v2/api-docs — self-describing API reference for all v2 endpoints
+  if (method === 'GET' && pathname === '/v2/api-docs') {
+    json(res, 200, getApiDocs());
+    return true;
+  }
+
   return false;
 }
 
-module.exports = { handleV2Route };
+/**
+ * Detect test runner results from session event log text.
+ * Scans for vitest, pytest, jest, and mocha output patterns.
+ * Returns null if no test output detected.
+ * @param {import('./event-log').EventLog} eventLog
+ * @returns {object|null} { runner, passed, failed, total, summary, command }
+ */
+function detectTestResult(eventLog) {
+  const transcript = eventLog.getTranscript();
+  // Strip ANSI codes for reliable matching
+  const clean = transcript.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, '');
+
+  // Detect the test command used (common patterns)
+  let command = null;
+  const cmdPatterns = [
+    /(?:npx |pnpm |yarn |bunx )?vitest\s+run[^\n]*/,
+    /(?:npx |pnpm |yarn |bunx )?jest[^\n]*/,
+    /(?:python[3]?\s+-m\s+)?pytest[^\n]*/,
+    /(?:npx |pnpm |yarn |bunx )?mocha[^\n]*/,
+  ];
+  for (const p of cmdPatterns) {
+    const m = clean.match(p);
+    if (m) { command = m[0].trim(); break; }
+  }
+
+  // vitest: "Tests  42 passed (42)" or "Tests  3 failed | 39 passed (42)"
+  const vitestMatch = clean.match(/Tests\s+(?:(\d+)\s+failed\s*\|?\s*)?(\d+)\s+passed\s*\((\d+)\)/);
+  if (vitestMatch) {
+    const failed = parseInt(vitestMatch[1] || '0', 10);
+    const passed = parseInt(vitestMatch[2], 10);
+    const total = parseInt(vitestMatch[3], 10);
+    return { runner: 'vitest', passed, failed, total, summary: vitestMatch[0].trim(), command };
+  }
+
+  // pytest: "42 passed" or "3 failed, 39 passed"
+  const pytestMatch = clean.match(/=+\s*((?:\d+\s+\w+,?\s*)+)\s*in\s+[\d.]+s\s*=+/);
+  if (pytestMatch) {
+    const summary = pytestMatch[1].trim();
+    const passedM = summary.match(/(\d+)\s+passed/);
+    const failedM = summary.match(/(\d+)\s+failed/);
+    const passed = passedM ? parseInt(passedM[1], 10) : 0;
+    const failed = failedM ? parseInt(failedM[1], 10) : 0;
+    return { runner: 'pytest', passed, failed, total: passed + failed, summary, command };
+  }
+
+  // jest: "Tests:  3 failed, 39 passed, 42 total"
+  const jestMatch = clean.match(/Tests:\s+(?:(\d+)\s+failed,\s*)?(\d+)\s+passed,\s*(\d+)\s+total/);
+  if (jestMatch) {
+    const failed = parseInt(jestMatch[1] || '0', 10);
+    const passed = parseInt(jestMatch[2], 10);
+    const total = parseInt(jestMatch[3], 10);
+    return { runner: 'jest', passed, failed, total, summary: jestMatch[0].trim(), command };
+  }
+
+  // mocha: "42 passing" or "3 failing"
+  const mochaPassMatch = clean.match(/(\d+)\s+passing/);
+  const mochaFailMatch = clean.match(/(\d+)\s+failing/);
+  if (mochaPassMatch) {
+    const passed = parseInt(mochaPassMatch[1], 10);
+    const failed = mochaFailMatch ? parseInt(mochaFailMatch[1], 10) : 0;
+    return { runner: 'mocha', passed, failed, total: passed + failed, summary: `${passed} passing${failed ? `, ${failed} failing` : ''}`, command };
+  }
+
+  return null;
+}
+
+/**
+ * Return the full v2 API documentation object.
+ * @returns {object}
+ */
+function getApiDocs() {
+  return {
+    ok: true,
+    name: 'ClawBridge v2 API',
+    description: 'PTY-backed Claude Code session management. Replaces v1 fire-and-forget /claude/run with persistent sessions, live output streaming, permission handling, and interactive control.',
+    endpoints: [
+      {
+        method: 'POST',
+        path: '/v2/session/start',
+        description: 'Start a new PTY-backed Claude Code session for a project.',
+        body: {
+          project: { type: 'string', required: true, description: 'Project name (maps to directory under ~/.openclaw/projects/)' },
+          instruction: { type: 'string', required: false, description: 'Initial instruction/prompt to send to Claude Code' },
+          approvalEnvelope: { type: 'object', required: false, description: 'Policy rules for auto-approving/denying permission prompts' },
+          timeout: { type: 'number', required: false, description: 'Session runtime timeout in ms (default: 30 min)' },
+          promptTimeout: { type: 'number', required: false, description: 'Prompt-wait timeout in ms (default: 5 min)' },
+        },
+        returns: 'sessionId, project, state, createdAt, cursor',
+      },
+      {
+        method: 'GET',
+        path: '/v2/session/output',
+        description: 'Stream session events using cursor-based pagination. Supports long-polling via waitMs.',
+        query: {
+          project: { type: 'string', required: true },
+          cursor: { type: 'number', required: true, description: 'Start reading from this event sequence number (0-based)' },
+          waitMs: { type: 'number', required: false, description: 'Long-poll: wait up to this many ms for new events (default: 0 = immediate)' },
+          maxEvents: { type: 'number', required: false, description: 'Max events to return per call' },
+        },
+        returns: 'events[], cursorStart, cursorEnd, hasMore, state, pendingPermission (if any)',
+      },
+      {
+        method: 'GET',
+        path: '/v2/session/peek',
+        description: 'Quick operational snapshot — state, pending permission, last N lines of output, test results. No cursor management needed.',
+        query: {
+          project: { type: 'string', required: true },
+          lines: { type: 'number', required: false, description: 'Number of tail lines to return (default: 30)' },
+          clean: { type: 'string', required: false, description: 'Set to "true" to strip ANSI escape codes from tail output (default: raw)' },
+        },
+        returns: 'state, active, inputReady, tail (last N lines), pendingPermission, testResult { runner, passed, failed, total, summary, command }',
+      },
+      {
+        method: 'POST',
+        path: '/v2/session/respond',
+        description: 'Respond to a pending permission prompt (approve, deny, or abort session).',
+        body: {
+          project: { type: 'string', required: true },
+          permissionId: { type: 'string', required: true, description: 'ID from pendingPermission in output/peek/status' },
+          decision: { type: 'string', required: true, description: 'One of: approve_once, deny, abort_session' },
+          reason: { type: 'string', required: false },
+          actor: { type: 'string', required: false, description: 'Who made the decision (default: nhe-itl)' },
+        },
+        returns: 'decision event, session state, cursor',
+      },
+      {
+        method: 'POST',
+        path: '/v2/session/send',
+        description: 'Send a follow-up message/instruction to a running session.',
+        body: {
+          project: { type: 'string', required: true },
+          message: { type: 'string', required: true, description: 'Text to write to Claude Code stdin' },
+        },
+        returns: 'accepted, cursor, state',
+      },
+      {
+        method: 'GET',
+        path: '/v2/session/status',
+        description: 'Quick status check for a project session — is it active, what state, any pending permission.',
+        query: {
+          project: { type: 'string', required: true },
+        },
+        returns: 'active, inputReady, state, sessionId, cursor, pendingPermissionId',
+      },
+      {
+        method: 'GET',
+        path: '/v2/session/transcript',
+        description: 'Full reconstructed PTY output as a single string. Available during active sessions and after completion.',
+        query: {
+          project: { type: 'string', required: true },
+          clean: { type: 'string', required: false, description: 'Set to "true" to strip ANSI escape codes (default: raw)' },
+        },
+        returns: 'transcript (raw or cleaned text), state, active',
+      },
+      {
+        method: 'POST',
+        path: '/v2/session/end',
+        description: 'End a session — sends wrap message, waits for PTY exit, transitions to ended state.',
+        body: {
+          project: { type: 'string', required: true },
+          message: { type: 'string', required: false, description: 'Custom wrap-up message (default: governance/handoff prompt)' },
+          includeTranscript: { type: 'boolean', required: false, description: 'Include full transcript in response' },
+        },
+        returns: 'sessionId, state, exitCode, finalCursor, transcript (if requested)',
+      },
+      {
+        method: 'POST',
+        path: '/v2/session/policy',
+        description: 'Update the approval envelope for an active session. Takes effect on the next permission prompt.',
+        body: {
+          project: { type: 'string', required: true },
+          approvalEnvelope: { type: 'object', required: true },
+        },
+        returns: 'project, sessionId, state, policyUpdated',
+      },
+      {
+        method: 'GET',
+        path: '/v2/sessions',
+        description: 'List all sessions. By default returns only active (non-terminal) sessions.',
+        query: {
+          all: { type: 'string', required: false, description: 'Set to "true" to include ended/completed/failed/timed_out sessions' },
+        },
+        returns: 'sessions[] (each with sessionId, project, state, cursor, etc.)',
+      },
+      {
+        method: 'GET',
+        path: '/v2/api-docs',
+        description: 'This endpoint. Returns self-describing API reference for all v2 endpoints.',
+        query: {},
+        returns: 'This documentation object',
+      },
+    ],
+    quickstart: {
+      description: 'Typical workflow for an OpenClaw assistant session:',
+      steps: [
+        '1. POST /v2/session/start { project, instruction, approvalEnvelope }',
+        '2. Poll GET /v2/session/peek?project=X to monitor progress',
+        '3. If pendingPermission appears → POST /v2/session/respond to approve/deny',
+        '4. Send follow-up instructions via POST /v2/session/send',
+        '5. When done → POST /v2/session/end (or session completes on its own)',
+        '6. GET /v2/session/transcript for full output history',
+      ],
+    },
+    notes: [
+      'All endpoints require Authorization: Bearer <token> header.',
+      'One active session per project at a time. Start returns 409 if session already running.',
+      'Permission prompts auto-timeout after promptTimeout ms (default 5 min) if not responded to.',
+      'Sessions auto-timeout after timeout ms (default 30 min).',
+      'v1 endpoints (/claude/run, /prawduct/run) still work but are fire-and-forget — prefer v2 for interactive use.',
+    ],
+  };
+}
+
+module.exports = { handleV2Route, detectTestResult, getApiDocs };

@@ -141,6 +141,34 @@ const PROMPT_PATTERNS = [
       };
     },
   },
+  // Workspace trust prompt: "Is this a project you created or one you trust?"
+  // Claude Code shows this on first use of a project directory.
+  {
+    pattern: /(?:project you created|one you trust|trust this (?:project|folder)|I trust this folder|safety check)/i,
+    extract: () => ({
+      permissionType: PermissionType.CONFIG_CHANGE,
+      target: { type: 'workspace_trust', description: 'Claude Code workspace trust confirmation' },
+      action: { summary: 'Workspace trust prompt — confirm this is a trusted project directory', details: null },
+    }),
+  },
+  // MCP server / tool permission: "Allow mcp__<server>__<tool>"
+  {
+    pattern: /allow\s+(mcp__\w+__\w+)/i,
+    extract: (match) => ({
+      permissionType: PermissionType.NETWORK_ACCESS,
+      target: { mcpTool: match[1].trim() },
+      action: { summary: `MCP tool access: ${match[1].trim()}`, details: null },
+    }),
+  },
+  // Generic "Do you want to proceed" / "Continue?" with context in preceding lines
+  {
+    pattern: /(?:do you want to (?:proceed|continue)|continue\?|proceed\?)/i,
+    extract: () => ({
+      permissionType: PermissionType.UNKNOWN,
+      target: { type: 'confirmation', description: 'Generic confirmation prompt' },
+      action: { summary: 'Confirmation prompt', details: null },
+    }),
+  },
 ];
 
 /**
@@ -411,10 +439,11 @@ class PermissionParser {
     if (!inCooldown) {
       const lastChunk = this._buffer.slice(-200);
       if (CONFIRMATION_PATTERN.test(lastChunk)) {
+        const cleanChunk = lastChunk.trim();
         const event = this._buildPermissionEvent({
           permissionType: PermissionType.UNKNOWN,
-          target: {},
-          action: { summary: 'Unrecognized permission prompt', details: lastChunk.trim() },
+          target: { type: 'unknown', promptText: cleanChunk },
+          action: { summary: 'Unrecognized permission prompt', details: cleanChunk },
         });
         this._pendingDetection = true;
         this._onPermission(event);

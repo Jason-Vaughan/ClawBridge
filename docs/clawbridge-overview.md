@@ -61,7 +61,7 @@ This bridge lives **entirely on the host machine**. It is a localhost service th
 | prawduct | `~/prawduct` | v1.2.0 |
 | PATH fix | `~/.zshrc` exports `/usr/local/bin` | Applied 2026-03-23 |
 
-**SSH access from Cursatory:** `ssh habitat` (uses `~/.ssh/config` entry: user `habitat-admin`, key `~/.ssh/genesis_habitat`)
+**SSH access:** Configure an SSH alias (e.g., `ssh habitat`) pointing to the host machine with key-based auth.
 
 ## Bridge Service Design
 

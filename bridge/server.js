@@ -29,10 +29,10 @@ if (fs.existsSync(envFile)) {
 
 const PORT = parseInt(process.env.BRIDGE_PORT || '3201', 10);
 const TOKEN = process.env.BRIDGE_TOKEN || '';
-const HOME = process.env.HOME || require('node:os').homedir();
+const HOME = process.env.HOME || '/Users/habitat-admin';
 const PROJECTS_DIR = path.join(HOME, '.openclaw', 'projects');
 const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
-const CLAUDE_BIN = process.env.CLAUDE_BIN || '/usr/local/bin/claude';
+const CLAUDE_BIN = '/usr/local/bin/claude';
 const PRAWDUCT_SETUP = path.join(PRAWDUCT_DIR, 'tools', 'prawduct-setup.py');
 
 /**
@@ -49,21 +49,201 @@ function resolvePythonBin() {
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
-  // Fall back to PATH-based resolution via which
   try {
     const { execSync } = require('node:child_process');
     const resolved = execSync('which python3', { encoding: 'utf8', timeout: 3000 }).trim();
     if (resolved) return resolved;
   } catch { /* which failed */ }
-  // Last resort — return bare name and let spawn fail with a clear error
   return 'python3';
 }
 
 const PYTHON_BIN = resolvePythonBin();
+const TANGLECLAW_URL = process.env.TANGLECLAW_URL || 'https://192.168.10.99:3102';
 const EXPORTS_DIR = path.join(HOME, '.openclaw', 'exports');
 
 const DEFAULT_TIMEOUT = 300000; // 5 min
 const MAX_TIMEOUT = 1800000;    // 30 min
+
+// ── Process Registry (for sidecar visibility) ──
+
+/** @type {Map<string, object>} Active/recent process entries keyed by run ID */
+const _processRegistry = new Map();
+
+/** How long to retain completed runs (30 minutes) */
+const PROCESS_RETAIN_MS = 30 * 60 * 1000;
+
+/** Quiet threshold: no output for this long → status = quiet */
+const QUIET_THRESHOLD_MS = 30 * 1000;
+
+/** Stalled threshold: no output for this long while running → suspectedStalled */
+const STALLED_THRESHOLD_MS = 2 * 60 * 1000;
+
+/**
+ * Register a new process in the registry.
+ * @param {object} opts
+ * @param {string} opts.id - Unique run ID
+ * @param {string} opts.type - Process type (claude, prawduct, exec, session)
+ * @param {string} opts.label - Description
+ * @param {string|null} [opts.project] - Project name
+ * @param {string|null} [opts.workDir] - Working directory
+ * @returns {object} The registry entry
+ */
+function registerProcess(opts) {
+  const entry = {
+    id: opts.id,
+    type: opts.type,
+    label: opts.label,
+    project: opts.project || null,
+    workDir: opts.workDir || null,
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    lastUpdateAt: null,
+    completedAt: null,
+    exitCode: null,
+    signal: null,
+    lastOutputSnippet: null,
+    needsAttention: false,
+    waitingForInput: false,
+    suspectedStalled: false
+  };
+  _processRegistry.set(opts.id, entry);
+  return entry;
+}
+
+/**
+ * Update process output state.
+ * @param {string} id - Process ID
+ * @param {string} output - New output chunk
+ */
+function updateProcessOutput(id, output) {
+  const entry = _processRegistry.get(id);
+  if (!entry) return;
+  entry.lastUpdateAt = new Date().toISOString();
+  entry.status = 'running';
+  entry.suspectedStalled = false;
+  // Keep last ~200 chars
+  const snippet = (entry.lastOutputSnippet || '') + output;
+  entry.lastOutputSnippet = snippet.slice(-200);
+}
+
+/**
+ * Mark a process as completed.
+ * @param {string} id - Process ID
+ * @param {number} exitCode
+ * @param {string|null} [signal]
+ */
+function completeProcess(id, exitCode, signal) {
+  const entry = _processRegistry.get(id);
+  if (!entry) return;
+  entry.completedAt = new Date().toISOString();
+  entry.exitCode = exitCode;
+  entry.signal = signal || null;
+  entry.status = exitCode === 0 ? 'completed' : (signal ? 'terminated' : 'failed');
+  entry.needsAttention = entry.status === 'failed';
+  entry.suspectedStalled = false;
+}
+
+/**
+ * Refresh heuristic flags on a process entry.
+ * @param {object} entry
+ */
+function refreshHeuristics(entry) {
+  if (entry.completedAt) return;
+  const now = Date.now();
+  const lastUpdate = entry.lastUpdateAt ? new Date(entry.lastUpdateAt).getTime() : new Date(entry.startedAt).getTime();
+  const elapsed = now - lastUpdate;
+
+  if (elapsed > STALLED_THRESHOLD_MS) {
+    entry.suspectedStalled = true;
+  } else if (elapsed > QUIET_THRESHOLD_MS) {
+    entry.status = 'quiet';
+  }
+
+  entry.needsAttention = entry.waitingForInput || entry.suspectedStalled || entry.status === 'failed';
+}
+
+/**
+ * Purge completed processes older than PROCESS_RETAIN_MS.
+ */
+function purgeOldProcesses() {
+  const cutoff = Date.now() - PROCESS_RETAIN_MS;
+  for (const [id, entry] of _processRegistry) {
+    if (entry.completedAt && new Date(entry.completedAt).getTime() < cutoff) {
+      _processRegistry.delete(id);
+    }
+  }
+}
+
+/**
+ * Build the /api/processes response from the registry + v2 sessions.
+ * @returns {{ active: object[], recent: object[] }}
+ */
+function buildProcessesResponse() {
+  purgeOldProcesses();
+
+  const active = [];
+  const recent = [];
+
+  // v1 registry entries
+  for (const entry of _processRegistry.values()) {
+    refreshHeuristics(entry);
+    if (entry.completedAt) {
+      recent.push({ ...entry });
+    } else {
+      active.push({ ...entry });
+    }
+  }
+
+  // v2 PTY sessions — map to process shape
+  for (const session of v2SessionManager.list()) {
+    // Skip if already tracked in v1 registry
+    if (_processRegistry.has(`v2-${session.sessionId}`)) continue;
+
+    const isTerminal = session.isTerminal;
+    let status = 'running';
+    if (session.state === 'waiting_for_permission') {
+      status = 'running';
+    } else if (session.state === 'completed') {
+      status = 'completed';
+    } else if (session.state === 'failed') {
+      status = 'failed';
+    } else if (session.state === 'timed_out') {
+      status = 'terminated';
+    } else if (session.state === 'ended') {
+      status = session.exitCode === 0 ? 'completed' : 'failed';
+    }
+
+    const waitingForInput = session.state === 'waiting_for_permission';
+    const transcript = session.eventLog ? session.eventLog.getTranscript() : '';
+    const lastOutput = transcript ? transcript.slice(-200) : null;
+
+    const proc = {
+      id: `v2-${session.sessionId}`,
+      type: 'claude',
+      label: `v2 session: ${session.project}`,
+      project: session.project,
+      workDir: session.projectDir,
+      status,
+      startedAt: session.createdAt,
+      lastUpdateAt: session.updatedAt,
+      completedAt: isTerminal ? session.updatedAt : null,
+      exitCode: session.exitCode,
+      signal: null,
+      lastOutputSnippet: lastOutput,
+      needsAttention: waitingForInput || status === 'failed',
+      waitingForInput,
+      suspectedStalled: false
+    };
+
+    if (isTerminal) {
+      recent.push(proc);
+    } else {
+      active.push(proc);
+    }
+  }
+
+  return { active, recent };
+}
 
 // ── v2 Session Manager ──
 
@@ -166,7 +346,11 @@ async function runSessionCommand(project, message, options = {}) {
   }
   args.push(message);
 
-  const result = await runCommand(CLAUDE_BIN, args, { cwd: projectDir, timeout });
+  const result = await runCommand(CLAUDE_BIN, args, {
+    cwd: projectDir,
+    timeout,
+    track: { type: 'session', label: `session: ${project}`, project }
+  });
 
   // Update last activity
   const session = _sessions.get(project);
@@ -248,6 +432,157 @@ function isAllowedDir(dir) {
   return resolved.startsWith(PROJECTS_DIR) || resolved.startsWith(PRAWDUCT_DIR) || resolved.startsWith(BRIDGE_DIR);
 }
 
+// ── Content-Type helper ──
+
+const CONTENT_TYPES = {
+  '.md': 'text/markdown; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.yaml': 'text/yaml; charset=utf-8',
+  '.yml': 'text/yaml; charset=utf-8',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.csv': 'text/csv; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.ts': 'text/typescript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.py': 'text/x-python; charset=utf-8',
+  '.sh': 'text/x-shellscript; charset=utf-8',
+};
+
+/**
+ * Get the Content-Type for a filename based on its extension.
+ * @param {string} filename
+ * @returns {string} MIME type string
+ */
+function getContentType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  return CONTENT_TYPES[ext] || 'application/octet-stream';
+}
+
+// ── Project file helpers ──
+
+/** @type {Set<string>} Directories excluded from project file listings by default */
+const DEFAULT_EXCLUDE_DIRS = new Set(['node_modules', '.git', '.claude']);
+
+/**
+ * Validate a project name and optional subpath for path traversal attacks.
+ * @param {string} project - Project name from URL
+ * @param {string} [subPath] - Optional file/directory subpath
+ * @returns {{valid: boolean, projectDir: string, resolvedPath: string, error?: string}}
+ */
+function validateProjectPath(project, subPath) {
+  // Reject dangerous characters in project name
+  if (!project || project.includes('..') || project.includes('\0') || project.includes('/')) {
+    return { valid: false, projectDir: '', resolvedPath: '', error: 'Invalid project name' };
+  }
+
+  const projectDir = path.join(PROJECTS_DIR, project);
+
+  if (!subPath) {
+    return { valid: true, projectDir, resolvedPath: projectDir };
+  }
+
+  // Reject traversal in subpath
+  if (subPath.includes('\0') || path.isAbsolute(subPath)) {
+    return { valid: false, projectDir, resolvedPath: '', error: 'Invalid path' };
+  }
+
+  // Normalize and check for traversal
+  const resolvedPath = path.resolve(projectDir, subPath);
+  const resolvedProjectDir = path.resolve(projectDir);
+  if (!resolvedPath.startsWith(resolvedProjectDir + path.sep) && resolvedPath !== resolvedProjectDir) {
+    return { valid: false, projectDir, resolvedPath, error: 'Path escapes project directory' };
+  }
+
+  // Symlink escape check (resolve both sides to handle /tmp → /private/tmp etc.)
+  try {
+    const real = fs.realpathSync(resolvedPath);
+    const realProjectsDir = fs.realpathSync(PROJECTS_DIR);
+    if (!real.startsWith(realProjectsDir + path.sep) && !real.startsWith(realProjectsDir)) {
+      return { valid: false, projectDir, resolvedPath, error: 'Symlink escapes allowed directory' };
+    }
+  } catch {
+    // File doesn't exist — that's OK for validation, caller handles 404
+  }
+
+  return { valid: true, projectDir, resolvedPath };
+}
+
+/**
+ * List files in a project directory.
+ * @param {string} baseDir - Absolute path to project root
+ * @param {object} [options]
+ * @param {string} [options.subPath] - Subdirectory to list (relative to baseDir)
+ * @param {boolean} [options.recursive] - Recurse into subdirectories (default false)
+ * @param {number} [options.maxDepth] - Maximum recursion depth (default 10)
+ * @param {Set<string>} [options.excludeDirs] - Directory names to skip (default: node_modules, .git, .claude)
+ * @param {string} [options.project] - Project name for URL generation
+ * @returns {Array<{name: string, path: string, size?: number, mtime?: string, type: string, url?: string, children?: number}>}
+ */
+function listProjectFiles(baseDir, options = {}) {
+  const recursive = options.recursive || false;
+  const maxDepth = options.maxDepth ?? 10;
+  const excludeDirs = options.excludeDirs || DEFAULT_EXCLUDE_DIRS;
+  const project = options.project || '';
+
+  const startDir = options.subPath ? path.join(baseDir, options.subPath) : baseDir;
+  if (!fs.existsSync(startDir) || !fs.statSync(startDir).isDirectory()) {
+    return [];
+  }
+
+  const files = [];
+
+  function walk(dir, relPrefix, depth) {
+    if (depth > maxDepth) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+
+      if (entry.isDirectory()) {
+        if (excludeDirs.has(entry.name)) continue;
+        if (recursive) {
+          walk(path.join(dir, entry.name), relPath, depth + 1);
+        } else {
+          // Count children (non-excluded)
+          let children = 0;
+          try {
+            children = fs.readdirSync(path.join(dir, entry.name)).filter(
+              n => !excludeDirs.has(n)
+            ).length;
+          } catch { /* unreadable */ }
+          files.push({ name: entry.name, path: relPath, type: 'directory', children });
+        }
+      } else if (entry.isFile()) {
+        const fullPath = path.join(dir, entry.name);
+        try {
+          const stat = fs.statSync(fullPath);
+          files.push({
+            name: entry.name,
+            path: relPath,
+            size: stat.size,
+            mtime: stat.mtime.toISOString(),
+            type: 'file',
+            url: project ? `/projects/${project}/files/${relPath}` : undefined
+          });
+        } catch { /* unreadable */ }
+      }
+    }
+  }
+
+  walk(startDir, options.subPath || '', 0);
+  return files;
+}
+
 /**
  * Run a command as a child process and collect output.
  * @param {string} cmd - Command binary
@@ -255,11 +590,28 @@ function isAllowedDir(dir) {
  * @param {object} options
  * @param {string} [options.cwd] - Working directory
  * @param {number} [options.timeout] - Timeout in ms
+ * @param {object} [options.track] - Process registry tracking options
+ * @param {string} [options.track.type] - Process type (claude, prawduct, exec)
+ * @param {string} [options.track.label] - Description
+ * @param {string} [options.track.project] - Project name
  * @returns {Promise<{exitCode: number, stdout: string, stderr: string, durationMs: number}>}
  */
 function runCommand(cmd, args, options = {}) {
   const cwd = options.cwd || PROJECTS_DIR;
   const timeout = Math.min(options.timeout || DEFAULT_TIMEOUT, MAX_TIMEOUT);
+
+  // Register in process registry if tracking requested
+  let processId = null;
+  if (options.track) {
+    processId = crypto.randomUUID();
+    registerProcess({
+      id: processId,
+      type: options.track.type || 'exec',
+      label: options.track.label || cmd,
+      project: options.track.project || null,
+      workDir: cwd
+    });
+  }
 
   return new Promise((resolve) => {
     const start = Date.now();
@@ -269,13 +621,21 @@ function runCommand(cmd, args, options = {}) {
     const child = spawn(cmd, args, {
       cwd,
       timeout,
+      stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}` }
     });
 
-    child.stdout.on('data', d => stdout.push(d));
-    child.stderr.on('data', d => stderr.push(d));
+    child.stdout.on('data', d => {
+      stdout.push(d);
+      if (processId) updateProcessOutput(processId, d.toString());
+    });
+    child.stderr.on('data', d => {
+      stderr.push(d);
+      if (processId) updateProcessOutput(processId, d.toString());
+    });
 
     child.on('close', (code) => {
+      if (processId) completeProcess(processId, code ?? 1, null);
       resolve({
         exitCode: code ?? 1,
         stdout: Buffer.concat(stdout).toString(),
@@ -285,6 +645,7 @@ function runCommand(cmd, args, options = {}) {
     });
 
     child.on('error', (err) => {
+      if (processId) completeProcess(processId, 1, null);
       resolve({
         exitCode: 1,
         stdout: '',
@@ -335,22 +696,7 @@ const server = http.createServer(async (req, res) => {
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
       return json(res, 404, { error: 'File not found' });
     }
-    const ext = path.extname(filename).toLowerCase();
-    const contentTypes = {
-      '.md': 'text/markdown; charset=utf-8',
-      '.txt': 'text/plain; charset=utf-8',
-      '.html': 'text/html; charset=utf-8',
-      '.json': 'application/json; charset=utf-8',
-      '.yaml': 'text/yaml; charset=utf-8',
-      '.yml': 'text/yaml; charset=utf-8',
-      '.pdf': 'application/pdf',
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.svg': 'image/svg+xml',
-      '.csv': 'text/csv; charset=utf-8',
-    };
-    const contentType = contentTypes[ext] || 'application/octet-stream';
+    const contentType = getContentType(filename);
     const disposition = ['.pdf', '.png', '.jpg', '.jpeg', '.svg'].includes(ext) ? 'inline' : 'inline';
     const content = fs.readFileSync(resolved);
     res.writeHead(200, {
@@ -392,6 +738,12 @@ const server = http.createServer(async (req, res) => {
       if (handled) return;
     }
 
+    // GET /api/processes — sidecar process visibility
+    if (method === 'GET' && pathname === '/api/processes') {
+      const data = buildProcessesResponse();
+      return json(res, 200, data);
+    }
+
     // GET /health
     if (method === 'GET' && pathname === '/health') {
       const claudeExists = fs.existsSync(CLAUDE_BIN);
@@ -405,6 +757,7 @@ const server = http.createServer(async (req, res) => {
         claude: claudeVersion,
         prawduct: prawductExists ? 'available' : 'not found',
         projectsDir: PROJECTS_DIR,
+        tangleclaw: TANGLECLAW_URL,
         circuitBreaker: { open: _circuitOpen, failures: _consecutiveFailures, threshold: CIRCUIT_BREAKER_THRESHOLD },
         activeSessions: _sessions.size,
         v2ActiveSessions: v2SessionManager.activeCount
@@ -546,11 +899,23 @@ const server = http.createServer(async (req, res) => {
       // Default: --print for output, --dangerously-skip-permissions for autonomous writes
       const args = ['--print', '--dangerously-skip-permissions'];
       if (body.flags && Array.isArray(body.flags)) {
-        // Only allow safe flags
-        const allowedFlags = ['--print', '--dangerously-skip-permissions', '--model', '--max-turns', '--verbose'];
-        for (const flag of body.flags) {
-          if (allowedFlags.some(f => flag.startsWith(f))) {
+        // Only allow safe flags. Flags with values (--model X, --max-turns N)
+        // can arrive as separate array elements or as --flag=value.
+        const booleanFlags = new Set(['--print', '--dangerously-skip-permissions', '--verbose']);
+        const valueFlags = new Set(['--model', '--max-turns']);
+        for (let i = 0; i < body.flags.length; i++) {
+          const flag = body.flags[i];
+          if (booleanFlags.has(flag)) {
             if (!args.includes(flag)) args.push(flag);
+          } else if (valueFlags.has(flag)) {
+            args.push(flag);
+            // Consume the next element as the value
+            if (i + 1 < body.flags.length) {
+              args.push(body.flags[++i]);
+            }
+          } else if (valueFlags.has(flag.split('=')[0])) {
+            // Handle --flag=value form
+            args.push(flag);
           }
         }
       }
@@ -558,10 +923,19 @@ const server = http.createServer(async (req, res) => {
 
       const result = await runCommand(CLAUDE_BIN, args, {
         cwd: workDir,
-        timeout: body.timeout || DEFAULT_TIMEOUT
+        timeout: body.timeout || DEFAULT_TIMEOUT,
+        track: { type: 'claude', label: body.prompt.slice(0, 100), project: null }
       });
 
       recordBuildResult(result.exitCode);
+
+      // Optionally include file manifest from the working directory
+      if (body.includeFiles) {
+        const relProject = path.relative(PROJECTS_DIR, workDir);
+        const projectName = relProject && !relProject.startsWith('..') ? relProject.split(path.sep)[0] : '';
+        result.files = listProjectFiles(workDir, { recursive: true, project: projectName });
+      }
+
       return json(res, 200, result);
     }
 
@@ -589,7 +963,8 @@ const server = http.createServer(async (req, res) => {
 
       const result = await runCommand(PYTHON_BIN, args, {
         cwd: workDir,
-        timeout: body.timeout || 120000
+        timeout: body.timeout || 120000,
+        track: { type: 'prawduct', label: `prawduct ${body.command}`, project: null }
       });
 
       return json(res, 200, result);
@@ -604,6 +979,66 @@ const server = http.createServer(async (req, res) => {
           .map(d => d.name);
       }
       return json(res, 200, { projectsDir: PROJECTS_DIR, projects });
+    }
+
+    // GET /projects/:project/files or GET /projects/:project/files/*
+    const projectFilesMatch = method === 'GET' && pathname.match(/^\/projects\/([^/]+)\/files(?:\/(.+))?$/);
+    if (projectFilesMatch) {
+      const project = decodeURIComponent(projectFilesMatch[1]);
+      const subPath = projectFilesMatch[2] ? decodeURIComponent(projectFilesMatch[2]) : null;
+
+      const validation = validateProjectPath(project, subPath);
+      if (!validation.valid) {
+        return json(res, 400, { error: validation.error });
+      }
+
+      if (!fs.existsSync(validation.projectDir)) {
+        return json(res, 404, { error: `Project not found: ${project}` });
+      }
+
+      if (subPath) {
+        // Serve a specific file
+        if (!fs.existsSync(validation.resolvedPath)) {
+          return json(res, 404, { error: 'File not found' });
+        }
+        const stat = fs.statSync(validation.resolvedPath);
+        if (!stat.isFile()) {
+          return json(res, 400, { error: 'Not a file (use files listing for directories)' });
+        }
+        const contentType = getContentType(subPath);
+        const content = fs.readFileSync(validation.resolvedPath);
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Content-Disposition': `inline; filename="${path.basename(subPath)}"`,
+          'Content-Length': content.length
+        });
+        return res.end(content);
+      }
+
+      // List files in the project
+      const queryParams = url.searchParams;
+      const recursive = queryParams.get('recursive') === 'true';
+      const scopePath = queryParams.get('path') || '';
+
+      // Validate scope path if provided
+      if (scopePath) {
+        const scopeValidation = validateProjectPath(project, scopePath);
+        if (!scopeValidation.valid) {
+          return json(res, 400, { error: scopeValidation.error });
+        }
+      }
+
+      const files = listProjectFiles(validation.projectDir, {
+        subPath: scopePath || undefined,
+        recursive,
+        project
+      });
+
+      return json(res, 200, {
+        project,
+        basePath: scopePath,
+        files
+      });
     }
 
     // 404

@@ -482,4 +482,38 @@ describe('PermissionParser', () => {
       expect(detected).toHaveLength(0);
     });
   });
+
+  describe('workspace trust prompt', () => {
+    it('classifies trust prompt as CONFIG_CHANGE with workspace_trust target', () => {
+      parser.feed('Is this a project you created or one you trust?\n❯ 1. Yes\n  2. No\nEsc to cancel\n');
+      expect(detected).toHaveLength(1);
+      expect(detected[0].permissionType).toBe(PermissionType.CONFIG_CHANGE);
+      expect(detected[0].target.type).toBe('workspace_trust');
+    });
+
+    it('classifies "I trust this folder" variant', () => {
+      parser.feed('I trust this folder\n❯ 1. Yes\nEsc to cancel\n');
+      expect(detected).toHaveLength(1);
+      expect(detected[0].permissionType).toBe(PermissionType.CONFIG_CHANGE);
+      expect(detected[0].target.type).toBe('workspace_trust');
+    });
+
+    it('classifies "safety check" variant', () => {
+      parser.feed('safety check\n❯ 1. Yes\nEsc to cancel\n');
+      expect(detected).toHaveLength(1);
+      expect(detected[0].permissionType).toBe(PermissionType.CONFIG_CHANGE);
+    });
+  });
+
+  describe('unknown fallback includes prompt text', () => {
+    it('includes promptText in target for unknown permissions', () => {
+      // Trigger unknown: confirmation pattern present but no recognized action
+      parser.feed('Something unusual happened\nEsc to cancel\n');
+      expect(detected).toHaveLength(1);
+      expect(detected[0].permissionType).toBe(PermissionType.UNKNOWN);
+      expect(detected[0].target.type).toBe('unknown');
+      expect(detected[0].target.promptText).toBeDefined();
+      expect(detected[0].target.promptText.length).toBeGreaterThan(0);
+    });
+  });
 });

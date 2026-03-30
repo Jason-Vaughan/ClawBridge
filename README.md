@@ -235,12 +235,40 @@ On macOS Docker Desktop, `host.docker.internal` resolves automatically.
 | `POST` | `/v2/session/start` | Spawn new PTY session for a project |
 | `POST` | `/v2/session/end` | Graceful shutdown with optional wrap message |
 | `GET` | `/v2/session/output` | Poll events (cursor-based, long-poll via `waitMs`) |
+| `GET` | `/v2/session/peek` | Quick snapshot — state, tail output, test results, pending permissions |
 | `POST` | `/v2/session/respond` | Submit permission decision |
 | `POST` | `/v2/session/send` | Send follow-up message to running session |
 | `POST` | `/v2/session/policy` | Update approval envelope mid-session |
-| `GET` | `/v2/session/transcript` | Export raw transcript (terminal sessions only) |
-| `GET` | `/v2/session/status` | Check session state |
+| `GET` | `/v2/session/transcript` | Full PTY transcript (live during session or after completion) |
+| `GET` | `/v2/session/status` | Check session state and `inputReady` flag |
 | `GET` | `/v2/sessions` | List sessions (active-only default, `?all=true` for all) |
+| `GET` | `/v2/api-docs` | Self-describing API reference — all endpoints, params, quickstart |
+
+#### Peek endpoint
+
+`GET /v2/session/peek?project=my-project&lines=30&clean=true`
+
+Returns a single operational snapshot without cursor management:
+
+```json
+{
+  "ok": true,
+  "state": "running",
+  "active": true,
+  "inputReady": true,
+  "tail": "...last 30 lines of output (ANSI-stripped with ?clean=true)...",
+  "testResult": { "runner": "vitest", "passed": 42, "failed": 0, "total": 42, "summary": "Tests  42 passed (42)", "command": "npx vitest run" },
+  "pendingPermission": null
+}
+```
+
+- `inputReady` — `true` when `POST /v2/session/send` will succeed (running + PTY alive)
+- `testResult` — auto-detected from PTY output (supports vitest, pytest, jest, mocha)
+- `?clean=true` — strips ANSI escape codes from `tail` (also available on `/v2/session/transcript`)
+
+#### Self-describing API
+
+`GET /v2/api-docs` returns the full API reference with every endpoint, parameter types, descriptions, and a quickstart guide. This is the recommended entry point for automation systems discovering ClawBridge capabilities.
 
 ### v1 Routes (Legacy)
 
@@ -293,14 +321,20 @@ The envelope tells ClawBridge which permissions to auto-handle vs. pause for rev
 
 No envelope = everything requires review (fail-closed).
 
-## Optional prawduct Integration
+## Integrations
 
-ClawBridge can be used as a standalone Claude Code bridge. If [prawduct](https://github.com/brookst/prawduct) is installed on the host, ClawBridge also exposes prawduct lifecycle commands (setup, sync, validate) via the `/prawduct/run` endpoint. This integration is optional and not required for core Claude session features.
+### TangleClaw orchestrator
+
+ClawBridge integrates with [TangleClaw](https://github.com/Jason-Vaughan/TangleClaw) — a multi-project orchestration platform that manages sessions, port assignments, shared documents, and project governance across multiple AI-powered projects. When TangleClaw is running, ClawBridge registers its port lease and reports active session state for sidecar polling via `GET /api/processes`. TangleClaw integration is optional — ClawBridge works standalone.
+
+### prawduct governance
+
+If [prawduct](https://github.com/brookst/prawduct) is installed on the host, ClawBridge exposes prawduct lifecycle commands (setup, sync, validate) via the `/prawduct/run` endpoint. This powers structured build governance (discovery, planning, building, Critic review) for projects managed through TangleClaw. This integration is optional and not required for core Claude session features.
 
 ## Testing
 
 ```bash
-# Run all tests (405+ across 15 files)
+# Run all tests (479 across 19 files)
 npm test
 
 # Run with live E2E (requires Claude Code installed)
@@ -327,8 +361,8 @@ ClawBridge/
       policy.js            # Evaluates permissions against approval envelopes
       event-log.js         # Append-only event log with cursor reads and long-poll
       sessions.js          # Session + SessionManager: lifecycle, timers, permissions
-      routes.js            # v2 HTTP route handlers
-      __tests__/           # 15 test files, 405+ tests
+      routes.js            # v2 HTTP route handlers (includes api-docs, peek, test detection)
+      __tests__/           # 19 test files, 479 tests
   docs/
     bridge-v2-maintainer-guide.md
     bridge-v2-pty-broker-spec.md

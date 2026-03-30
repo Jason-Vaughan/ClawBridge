@@ -486,7 +486,7 @@ Specifically, the subagent found:
 - `GET /sessions` worked
 - `POST /claude/run` and `POST /prawduct/run` existed
 - but the expected bridge source tree was **not** discoverable under the documented host project directories from the reachable surface
-- and direct SSH from this container to `habitat-admin@192.168.20.10` failed due to auth constraints
+- and direct SSH from the container to the host failed due to auth constraints
 
 The subagent also found:
 - the project tools repo was not the bridge repo
