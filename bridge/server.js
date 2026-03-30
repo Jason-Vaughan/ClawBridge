@@ -577,14 +577,14 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: `command must be one of: ${allowedCommands.join(', ')}` });
       }
 
-      const args = [PRAWDUCT_SETUP, body.command];
-      if (body.args && Array.isArray(body.args)) {
-        args.push(...body.args);
-      }
-
       const workDir = body.workDir || PROJECTS_DIR;
       if (!isAllowedDir(workDir)) {
         return json(res, 403, { error: `workDir must be under ${PROJECTS_DIR} or ${PRAWDUCT_DIR}` });
+      }
+
+      const args = [PRAWDUCT_SETUP, body.command, workDir];
+      if (body.args && Array.isArray(body.args)) {
+        args.push(...body.args);
       }
 
       const result = await runCommand(PYTHON_BIN, args, {
