@@ -629,7 +629,7 @@ function getApiDocs() {
       'One active session per project at a time. Start returns 409 if session already running.',
       'Permission prompts auto-timeout after promptTimeout ms (default 5 min) if not responded to.',
       'Sessions auto-timeout after timeout ms (default 30 min).',
-      'v1 endpoints (/claude/run, /prawduct/run) still work but are fire-and-forget — prefer v2 for interactive use.',
+      '/prawduct/run still available for governance lifecycle commands (setup, sync, validate).',
     ],
   };
 }
