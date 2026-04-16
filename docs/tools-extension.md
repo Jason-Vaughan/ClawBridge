@@ -41,7 +41,7 @@ Arguments:
 - `req` — Node `http.IncomingMessage`. The module is permitted to **mutate `req.url`** to strip the `/tools` prefix before forwarding to its internal router (see reference implementation).
 - `res` — Node `http.ServerResponse`.
 
-Return `true` if the request was handled (response written). Return `false` to decline — ClawBridge will then fall through to its own 404 handler. Rejecting the promise is treated as an internal error; ClawBridge will send a 500.
+Return `true` if the request was handled (response written — this is the normal case; the extension's internal router is responsible for writing a 404 for its own unknown routes). Return `false` to decline the request entirely — ClawBridge will then send its top-level 404. The false-return path exists for extensions that want to claim only a subset of `/tools/*` and defer the rest; for most extensions (including the reference impl) this branch is never taken. Rejecting the promise is treated as an internal error; ClawBridge will send a 500.
 
 ### `getToolsHealth() → Promise<object>`
 
@@ -55,7 +55,7 @@ Called whenever ClawBridge's `/health` endpoint is hit. Return a JSON-serializab
 }
 ```
 
-If the module is not initialized or throws, ClawBridge reports `{ ok: false, error: "..." }` under `tools` and keeps its own `ok: true` on the root payload (tools failure doesn't fail the broker).
+**Layering:** the extension returns whatever health object makes sense for its domain — it should not worry about representing its own absence. ClawBridge wraps the call: if the extension's `getToolsHealth` rejects or throws, ClawBridge substitutes `{ ok: false, error: "<message>" }` under `tools`. If the extension returns normally, ClawBridge embeds the return value verbatim. Tools failure never flips `ok: true → false` on the root payload.
 
 ### `close() → Promise<void>`
 
@@ -69,7 +69,7 @@ Called during graceful shutdown (SIGINT, SIGTERM). Close connections, flush buff
 CLAWBRIDGE_TOOLS_MODULE=/absolute/path/to/your-extension.js
 ```
 
-The path must be absolute. Relative paths are rejected (they'd resolve against ClawBridge's cwd, which is fragile). If the path does not exist, ClawBridge logs a warning and starts without the extension.
+The path must be absolute. **Path validation is ClawBridge's responsibility** — it reads the env var, checks `path.isAbsolute()`, and rejects relative paths with a startup warning (the extension is not consulted). If the path does not exist, ClawBridge logs a warning and starts without the extension. The extension itself never sees this env var.
 
 ### Additional env vars (extension's own)
 
@@ -131,7 +131,7 @@ This is ~30 non-blank lines. If your extension is a plain Express or raw-http ha
 
 - **Multiple extensions.** ClawBridge mounts at most one tools module. Multi-extension is a v2 concern.
 - **Custom prefix.** The mount prefix is always `/tools`. Extensions may not claim `/v2`, `/api/*`, or other bridge-reserved namespaces.
-- **Auth delegation mechanism.** ClawBridge's bearer-token auth runs **before** `handleToolsRoute` is invoked; the extension receives only authenticated requests. The extension may implement additional auth if it wants, but cannot override the bridge's auth.
+- **Auth delegation mechanism.** ClawBridge's bearer-token auth runs **before** `handleToolsRoute` is invoked — for every request under `/tools/*` without exception. The extension receives only authenticated requests. Extensions **cannot** opt specific routes out of bridge-level auth in v1 (e.g., there is no public `/tools/health` equivalent to the bridge's unauthenticated `/health`). Extensions may implement additional in-extension auth on top if needed. Per-route auth opt-out is a v2 concern.
 - **Hot reload.** Changing `CLAWBRIDGE_TOOLS_MODULE` requires a bridge restart.
 
 ## Migration
@@ -147,7 +147,7 @@ For consumers currently vendoring `tools-router.js` into their fork of `bridge/`
 
 ## Testing
 
-The public repo ships a fixture extension at `bridge/__tests__/fixtures/mock-tools-extension.js` that exercises every branch of the interface:
+Chunk 3 will add a fixture extension at `bridge/__tests__/fixtures/mock-tools-extension.js` that exercises every branch of the interface:
 
 - init success and failure
 - `handleToolsRoute` true/false/throw
