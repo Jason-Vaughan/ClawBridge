@@ -63,6 +63,44 @@ const EXPORTS_DIR = process.env.EXPORTS_DIR || path.join(HOME, 'exports');
 const DEFAULT_TIMEOUT = 300000; // 5 min
 const MAX_TIMEOUT = 1800000;    // 30 min
 
+// ── Tools extension (optional) ──
+// Contract: docs/tools-extension.md. Module must export
+// { init, handleToolsRoute, getToolsHealth, close } as async functions.
+
+/**
+ * Load and validate the tools extension module at the given absolute path.
+ * Failures are logged and return null — the bridge runs without /tools/* support.
+ * @param {string} modulePath - Absolute filesystem path to the extension module
+ * @returns {object|null} Validated extension module, or null on any failure
+ */
+function loadToolsExtension(modulePath) {
+  if (!path.isAbsolute(modulePath)) {
+    console.warn(`CLAWBRIDGE_TOOLS_MODULE must be an absolute path (got: ${modulePath}) — tools extension disabled`);
+    return null;
+  }
+  if (!fs.existsSync(modulePath)) {
+    console.warn(`CLAWBRIDGE_TOOLS_MODULE not found at ${modulePath} — tools extension disabled`);
+    return null;
+  }
+  let mod;
+  try {
+    mod = require(modulePath);
+  } catch (err) {
+    console.warn(`Failed to load CLAWBRIDGE_TOOLS_MODULE at ${modulePath}: ${err.message} — tools extension disabled`);
+    return null;
+  }
+  for (const name of ['init', 'handleToolsRoute', 'getToolsHealth', 'close']) {
+    if (typeof mod[name] !== 'function') {
+      console.warn(`CLAWBRIDGE_TOOLS_MODULE at ${modulePath} missing export '${name}' — tools extension disabled`);
+      return null;
+    }
+  }
+  return mod;
+}
+
+const TOOLS_MODULE_PATH = process.env.CLAWBRIDGE_TOOLS_MODULE || '';
+let toolsExtension = TOOLS_MODULE_PATH ? loadToolsExtension(TOOLS_MODULE_PATH) : null;
+
 // ── Process Registry (for external polling / sidecar visibility) ──
 
 /** @type {Map<string, object>} Active/recent process entries keyed by run ID */
@@ -644,6 +682,22 @@ const server = http.createServer(async (req, res) => {
       if (handled) return;
     }
 
+    // ── tools extension routes ──
+    if (toolsExtension && (pathname === '/tools' || pathname.startsWith('/tools/'))) {
+      try {
+        const handled = await toolsExtension.handleToolsRoute({ pathname, req, res });
+        if (handled) return;
+        return json(res, 404, { error: 'Not found' });
+      } catch (err) {
+        console.error('Tools extension handleToolsRoute error:', err);
+        if (!res.headersSent) {
+          return json(res, 500, { error: 'Tools extension error' });
+        }
+        res.destroy(err);
+        return;
+      }
+    }
+
     // GET /api/processes — process visibility for external orchestrators
     if (method === 'GET' && pathname === '/api/processes') {
       const data = buildProcessesResponse();
@@ -658,13 +712,23 @@ const server = http.createServer(async (req, res) => {
         ? (await runCommand(CLAUDE_BIN, ['--version'], { timeout: 5000 })).stdout.trim()
         : 'not found';
 
-      return json(res, 200, {
+      const payload = {
         ok: true,
         claude: claudeVersion,
         prawduct: prawductExists ? 'available' : 'not found',
         projectsDir: PROJECTS_DIR,
         activeSessions: v2SessionManager.activeCount
-      });
+      };
+
+      if (toolsExtension) {
+        try {
+          payload.tools = await toolsExtension.getToolsHealth();
+        } catch (err) {
+          payload.tools = { ok: false, error: err.message || String(err) };
+        }
+      }
+
+      return json(res, 200, payload);
     }
 
     // POST /prawduct/run
@@ -778,24 +842,60 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`ClawBridge listening on 0.0.0.0:${PORT}`);
-  console.log(`  Claude: ${CLAUDE_BIN}`);
-  console.log(`  Python: ${PYTHON_BIN}`);
-  if (fs.existsSync(PRAWDUCT_SETUP)) console.log(`  Prawduct: ${PRAWDUCT_SETUP}`);
-  console.log(`  Projects: ${PROJECTS_DIR}`);
-  console.log(`  Auth: ${TOKEN ? 'Bearer token required' : 'OPEN (no token set)'}`);
-  console.log(`  v2 PTY broker: enabled`);
-});
+/**
+ * Initialize the tools extension (if loaded), then start listening.
+ * If init() rejects, the extension is disabled and the bridge starts anyway.
+ * @returns {Promise<void>}
+ */
+async function startServer() {
+  if (toolsExtension) {
+    try {
+      await toolsExtension.init();
+    } catch (err) {
+      console.warn(`Tools extension init() failed: ${err.message || err} — continuing without /tools/*`);
+      toolsExtension = null;
+    }
+  }
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`ClawBridge listening on 0.0.0.0:${PORT}`);
+    console.log(`  Claude: ${CLAUDE_BIN}`);
+    console.log(`  Python: ${PYTHON_BIN}`);
+    if (fs.existsSync(PRAWDUCT_SETUP)) console.log(`  Prawduct: ${PRAWDUCT_SETUP}`);
+    console.log(`  Projects: ${PROJECTS_DIR}`);
+    console.log(`  Auth: ${TOKEN ? 'Bearer token required' : 'OPEN (no token set)'}`);
+    console.log(`  v2 PTY broker: enabled`);
+    if (toolsExtension) console.log(`  Tools extension: ${TOOLS_MODULE_PATH}`);
+  });
+}
+
+startServer();
 
 // ── Cleanup on shutdown ──
 
+let _shuttingDown = false;
+
 /**
- * Destroy all v2 PTY sessions on process exit to prevent orphaned processes.
+ * Destroy all v2 PTY sessions and close the tools extension before exiting.
+ * Idempotent: a second SIGTERM/SIGINT while shutdown is in flight is ignored,
+ * so the extension's `close()` runs exactly once per the v1 contract.
+ * @returns {Promise<void>}
  */
-function shutdown() {
+async function shutdown() {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
   console.log('Shutting down — destroying v2 sessions...');
   v2SessionManager.destroyAll();
+  // Null the module reference before awaiting close() so late /tools/*
+  // requests fall through to 404 instead of hitting a closing extension.
+  const ext = toolsExtension;
+  toolsExtension = null;
+  if (ext) {
+    try {
+      await ext.close();
+    } catch (err) {
+      console.error('Tools extension close() failed:', err);
+    }
+  }
   process.exit(0);
 }
 

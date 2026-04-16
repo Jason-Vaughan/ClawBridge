@@ -137,6 +137,7 @@ curl -H "Authorization: Bearer $BRIDGE_TOKEN" \
 | `CLAUDE_CODE_OAUTH_TOKEN` | Yes | Token from `claude setup-token` for headless auth |
 | `CLAUDE_BIN` | No | Path to Claude Code binary (default: `/usr/local/bin/claude`) |
 | `PYTHON_BIN` | No | Path to Python 3 binary (auto-detected) |
+| `CLAWBRIDGE_TOOLS_MODULE` | No | Absolute path to a Node module implementing the [tools extension interface](docs/tools-extension.md). When set, the bridge mounts the module under `/tools/*` and merges its health into `/health`. Absent, the bridge runs as a pure PTY broker. |
 
 ### Claude Code Headless Auth
 
@@ -307,10 +308,14 @@ External orchestrators can poll `GET /api/processes` to monitor active and recen
 
 If a governance tool (e.g., [prawduct](https://github.com/brookst/prawduct)) is installed on the host, ClawBridge can expose lifecycle commands (setup, sync, validate) via the `/prawduct/run` endpoint. This integration is optional.
 
+### Tools extension
+
+Set `CLAWBRIDGE_TOOLS_MODULE` to the absolute path of a Node module that exports `{ init, handleToolsRoute, getToolsHealth, close }` and the bridge will mount it under `/tools/*`, merge its health into `/health`, and close it on shutdown. See [docs/tools-extension.md](docs/tools-extension.md) for the full interface contract, guarantees, and reference implementation.
+
 ## Testing
 
 ```bash
-# Run all tests (475 across 18 files)
+# Run all tests (516 across 20 files; 14 e2e skipped by default)
 npm test
 
 # Run with live E2E (requires Claude Code installed)

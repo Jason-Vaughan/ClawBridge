@@ -1,7 +1,6 @@
 # ClawBridge Tools Extension Point
 
-**Status:** Draft v1 (not yet implemented)
-**Tracking:** Chunk 3 of the ClawBridge extraction plan in RentalClaw
+**Status:** v1 (implemented)
 **Env var:** `CLAWBRIDGE_TOOLS_MODULE`
 
 ## Purpose
@@ -147,17 +146,21 @@ For consumers currently vendoring `tools-router.js` into their fork of `bridge/`
 
 ## Testing
 
-Chunk 3 will add a fixture extension at `bridge/__tests__/fixtures/mock-tools-extension.js` that exercises every branch of the interface:
+The repo ships a fixture extension at `bridge/__tests__/fixtures/mock-tools-extension.js` that toggles behavior via env vars (`MOCK_TOOLS_INIT_THROW`, `MOCK_TOOLS_ROUTE_THROW`, `MOCK_TOOLS_HEALTH_THROW`, `MOCK_TOOLS_CLOSE_THROW`) and records lifecycle events to the file at `MOCK_TOOLS_LOG`. The companion test file `bridge/__tests__/tools-extension.test.js` spawns real bridge subprocesses against the fixture and covers:
 
-- init success and failure
-- `handleToolsRoute` true/false/throw
-- `getToolsHealth` object/reject
-- `close` called exactly once on shutdown
+- `/tools/*` dispatch and prefix matching (including the `/tools/decline → false → 404` branch)
+- `/health` merge semantics (success, extension throw → `{ ok: false, error }`, extension absent → no `tools` key)
+- bridge-level auth running before `handleToolsRoute`
+- non-`/tools` paths bypassing the extension entirely
+- error paths in `handleToolsRoute` (500), `getToolsHealth` (substituted), and `close` (logged, shutdown continues)
+- graceful degradation when the env var is unset, relative, a missing file, or points at a module missing a required export
+- `close()` invoked after `init-ok` during SIGTERM shutdown (ordering asserted via the log file)
 
-The test file `bridge/__tests__/tools-extension.test.js` runs ClawBridge end-to-end against this fixture and verifies: mount behavior, prefix routing, health merging, graceful-degradation-on-init-failure, and shutdown ordering.
+Run with `npm test`.
 
-## Open Questions (pre-implementation)
+## Deferred for v2
 
-1. Should `handleToolsRoute` be called with the **original** `req.url` or with `/tools` already stripped? Reference implementation strips internally — keeping that pattern means the interface is slightly less ergonomic for simpler extensions. Consider letting the extension opt into pre-stripped URLs via a returned flag in `init()`. (Probably over-engineered for v1; defer.)
-2. Should the `tools` key in `/health` be configurable? (E.g., RentalClaw might want the key to read `tools` while another consumer wants `app`.) Defer — YAGNI.
-3. Auth: should the extension be able to **declare** route-specific auth skips back to the bridge? Defer — extensions can mount their own sub-auth today.
+1. Pre-stripped URLs in `handleToolsRoute`. Reference implementation strips internally; keeping the current shape means simpler extensions must do the same. Consider an opt-in flag via `init()` if a third-party consumer requests it.
+2. Configurable `/health` key. v1 hardcodes `tools`. Revisit if another consumer wants a different name.
+3. Per-route auth opt-out. Bridge-level bearer-token auth runs for every `/tools/*` request. Extensions may layer their own sub-auth today but cannot declare a public sub-route.
+4. Multiple extensions mounted under distinct prefixes.
