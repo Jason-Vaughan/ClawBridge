@@ -1,9 +1,40 @@
 {
-  "name": "clawbridge",
-  "version": "1.4.2",
+  "name": "@jason-vaughan/clawbridge",
+  "version": "1.5.0",
   "private": false,
   "description": "ClawBridge — PTY permission-broker bridge for orchestrating Claude Code sessions",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "pty",
+    "broker",
+    "permissions",
+    "orchestration",
+    "bridge",
+    "automation"
+  ],
+  "author": "Jason Vaughan",
+  "license": "MIT",
+  "homepage": "https://github.com/Jason-Vaughan/ClawBridge#readme",
+  "bugs": {
+    "url": "https://github.com/Jason-Vaughan/ClawBridge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jason-Vaughan/ClawBridge.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bridge/",
+    "docs/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
+    "start": "node bridge/server.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
