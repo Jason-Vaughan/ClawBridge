@@ -4,6 +4,9 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **README scope refresh.** Clarified that ClawBridge is a Claude Code PTY permission broker with an optional, single-tenant embedded tools extension — *not* a general docker_host bridge to multiple host-side services. Added a "Secondary capability" paragraph to "What Problem It Solves" describing the `/tools/*` extension slot honestly. Updated the architecture diagram to show the optional `/tools/*` mount alongside the always-on PTY broker. Added a new "When to Use ClawBridge" section to help downstream deployments (OpenClaw stack docs, third-party integrators) make the right call about when the bridge fits and when a reverse proxy or different tool is needed.
+
 ## [1.5.0] — 2026-04-16
 
 ### Added

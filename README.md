@@ -12,6 +12,8 @@ AI orchestrators (running inside Docker containers, remote servers, etc.) often 
 
 ClawBridge sits on the host as a lightweight HTTP service that bridges the gap, letting any orchestrator invoke Claude Code as a build tool while maintaining structured permission oversight.
 
+**Secondary capability — embedded tools extension.** Some deployments also need to expose a small HTTP service alongside the Claude Code broker (for example, a domain-specific tools API consumed by the same orchestrator). ClawBridge supports this via a single, in-process extension slot mounted under `/tools/*` (set `CLAWBRIDGE_TOOLS_MODULE`). This is **single-tenant** by design — the bridge hosts at most one embedded handler, and does **not** proxy to other host-side services. It is not a general-purpose reverse proxy or multi-service docker_host bridge. See the [tools extension contract](docs/tools-extension.md).
+
 > **Note on Anthropic's third-party policy:** In January 2026, Anthropic [banned the use of Claude subscription OAuth tokens (Pro/Max) in third-party tools](https://www.theregister.com/2026/02/20/anthropic_clarifies_ban_third_party_claude_access/) — this was about token arbitrage, where third-party harnesses routed through cheaper subscription auth instead of API pricing. ClawBridge does **not** do this. It invokes Claude Code on the host as a build tool using proper API key authentication (`claude setup-token`), which is the [explicitly permitted path](https://code.claude.com/docs/en/legal-and-compliance) for developers building products that interact with Claude. ClawBridge does not spoof Claude Code's harness or use subscription credentials — it's a tool invocation bridge, not an engine substitution.
 
 ## How It Works
@@ -19,34 +21,42 @@ ClawBridge sits on the host as a lightweight HTTP service that bridges the gap, 
 ClawBridge spawns Claude Code in a real PTY (pseudo-terminal), detects permission prompts from TUI output, and lets the orchestrator approve or deny each one through a structured API. The orchestrator gets live output streaming, test result detection, and full session control.
 
 ```
-+--------------------------------------+
-|  Orchestrator                        |
-|  Role: Architect / Reviewer          |
-|                                      |
-|  Drives builds via HTTP calls        |
-|  to ClawBridge                       |
-+----------------+---------------------+
-                 | HTTP (JSON API, Bearer token)
-                 | http://host.docker.internal:<port>
-                 v
-+--------------------------------------+
-|  ClawBridge (host machine)           |
-|  Node.js HTTP service                |
-|  launchd/systemd managed             |
-|                                      |
-|  PTY broker with permission          |
-|  detection, policy evaluation,       |
-|  and structured event stream         |
-+----------------+---------------------+
-                 | PTY / child process
-                 v
-+--------------------------------------+
-|  Claude Code                         |
-|  Interactive TUI session             |
-|  Permission prompts surfaced via     |
-|  the bridge's event stream           |
-+--------------------------------------+
++----------------------------------------------+
+|  Orchestrator                                |
+|  Role: Architect / Reviewer                  |
+|                                              |
+|  Drives builds via HTTP calls to ClawBridge  |
++------------------------+---------------------+
+                         | HTTP (JSON API, Bearer token)
+                         | http://host.docker.internal:<port>
+                         v
++----------------------------------------------+
+|  ClawBridge (host machine)                   |
+|  Node.js HTTP service                        |
+|  launchd/systemd managed                     |
+|                                              |
+|  +----------------------+  +---------------+ |
+|  | PTY broker (core)    |  | Tools         | |
+|  | always on            |  | extension     | |
+|  |                      |  | (optional,    | |
+|  | /v2/session/*        |  |  single-      | |
+|  | /v2/sessions         |  |  tenant)      | |
+|  | /v2/api-docs         |  |               | |
+|  | /health, /projects   |  | /tools/*      | |
+|  +----------+-----------+  +-------+-------+ |
++-------------|----------------------|---------+
+              | PTY / child process  | in-process HTTP
+              v                      v
++--------------------------+  +--------------------------+
+|  Claude Code             |  |  Embedded HTTP handler   |
+|  Interactive TUI session |  |  (e.g., a Fastify or     |
+|  Permission prompts      |  |   Express app supplied   |
+|  surfaced via the        |  |   by the consumer; one   |
+|  bridge's event stream   |  |   per bridge process)    |
++--------------------------+  +--------------------------+
 ```
+
+The right-hand column is mounted only when `CLAWBRIDGE_TOOLS_MODULE` points at a module implementing the [tools extension interface](docs/tools-extension.md). Absent that env var, the bridge runs as a pure PTY broker — no `/tools/*` routes, no `tools` block in `/health`.
 
 ### Session Flow
 
@@ -61,6 +71,22 @@ ClawBridge spawns Claude Code in a real PTY (pseudo-terminal), detects permissio
 6. Orchestrator polls `GET /v2/session/peek` for a quick snapshot or `GET /v2/session/output` for full events
 7. For permissions requiring review, orchestrator responds via `POST /v2/session/respond`
 8. Session ends via `POST /v2/session/end` with optional transcript export
+
+## When to Use ClawBridge
+
+**Use ClawBridge if you need:**
+
+- **A Claude Code PTY broker on the host machine.** The bridge spawns Claude Code in a real PTY, parses permission prompts from TUI output, and exposes a structured HTTP API so a container-side orchestrator can approve, deny, or pause each one. This is the primary use case — the broker is what 100% of `bridge/v2/` is built for.
+- *(Optional, advanced)* **A place to co-locate one additional HTTP service inside the bridge process.** Set `CLAWBRIDGE_TOOLS_MODULE` to mount an embedded handler under `/tools/*`. The extension shares the bridge's bearer-token auth, port, and lifecycle. v1 is **single-tenant**: one extension per bridge process, no multi-mount. Documented contract in [docs/tools-extension.md](docs/tools-extension.md).
+
+**ClawBridge is *not* the right tool if:**
+
+- You only need Claude Code on the host and have direct shell/SSH access — invoke `claude` directly, no bridge required.
+- You need to fan out to **multiple** host-side services from a container — ClawBridge mounts at most one embedded extension and does not proxy to external services. Use a general-purpose reverse proxy (Caddy, Traefik, nginx) instead.
+- You want to run Claude Code **inside** a container — that is a different deployment model (sandboxed Claude Code), not what ClawBridge addresses.
+- You need a security boundary between orchestrator and host beyond bearer-token auth + the permission envelope. ClawBridge's safety model is *structured permission review of a single CLI tool's actions*, not network-level isolation.
+
+**For OpenClaw deployments specifically:** recommend ClawBridge when the deployment uses Claude Code as a builder behind a containerized orchestrator. If a deployment also needs an embedded tools API (RentalClaw-style), point at `CLAWBRIDGE_TOOLS_MODULE`. If a deployment needs multiple distinct host-side services bridged, ClawBridge alone is insufficient — pair it with a reverse proxy.
 
 ## Quickstart
 
