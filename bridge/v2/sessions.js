@@ -19,6 +19,23 @@ const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const GRACEFUL_SHUTDOWN_MS = 5000;
 
 /**
+ * Permission modes accepted by Claude Code's --permission-mode flag.
+ * When the caller sets permissionMode in /v2/session/start, the bridge appends
+ * `--permission-mode <value>` to the spawn args. When omitted, no flag is
+ * passed and Claude uses its own default (currently `auto` in 2.1.x) — auto
+ * mode bypasses the bridge's TUI permission parser, so callers that want the
+ * bridge's structured permission review must explicitly set `default`.
+ */
+const VALID_PERMISSION_MODES = Object.freeze([
+  'default',
+  'acceptEdits',
+  'bypassPermissions',
+  'auto',
+  'plan',
+  'dontAsk',
+]);
+
+/**
  * A single v2 session — PTY-backed Claude Code process for one project.
  */
 class Session {
@@ -278,6 +295,11 @@ class SessionManager {
    * @param {object} [options.approvalEnvelope] - Approval envelope for policy evaluation
    * @param {number} [options.timeout] - Session runtime timeout (ms)
    * @param {number} [options.promptTimeout] - Prompt-wait timeout (ms)
+   * @param {string} [options.permissionMode] - Claude Code permission mode; passed as
+   *   `--permission-mode <value>` to the spawned claude. One of: default, acceptEdits,
+   *   bypassPermissions, auto, plan, dontAsk. When omitted, no flag is passed and Claude
+   *   uses its own default (currently `auto`, which bypasses the bridge's permission
+   *   parser). Set to `default` to engage the bridge's structured permission review.
    * @returns {Session}
    */
   start(project, options = {}) {
@@ -319,8 +341,28 @@ class SessionManager {
       session.approvalEnvelope = options.approvalEnvelope;
     }
 
-    // Spawn Claude Code in PTY — use the real UUID for --session-id
+    // Validate permissionMode if provided. Reject before spawning to surface
+    // bad input as 400, not as a silently-failed Claude Code subprocess.
+    if (options.permissionMode !== undefined && options.permissionMode !== null) {
+      if (!VALID_PERMISSION_MODES.includes(options.permissionMode)) {
+        const err = new Error(
+          `Invalid permissionMode '${options.permissionMode}'. Must be one of: ${VALID_PERMISSION_MODES.join(', ')}`
+        );
+        err.code = 'INVALID_PERMISSION_MODE';
+        throw err;
+      }
+      session.permissionMode = options.permissionMode;
+    }
+
+    // Spawn Claude Code in PTY — use the real UUID for --session-id.
+    // When permissionMode is set, pass it to claude as --permission-mode so the
+    // bridge's permission parser can actually see prompts. Without this, claude
+    // defaults to auto mode and decides approve/deny internally, bypassing the
+    // bridge's structured permission review entirely.
     const args = ['--session-id', claudeSessionId];
+    if (session.permissionMode) {
+      args.push('--permission-mode', session.permissionMode);
+    }
     if (options.instruction) {
       args.push(options.instruction);
     }
@@ -529,20 +571,30 @@ class SessionManager {
         if (exitCode === 0) {
           session.transition(SessionState.COMPLETED);
         } else {
-          // Unexpected exit — emit error event before transitioning
+          // Unexpected exit — log to bridge stdout (orchestrators can poll
+          // /v2/session/output for the structured event, but operators tailing
+          // bridge logs need visibility too) and emit error event.
+          const tail = session.eventLog.getTranscript().slice(-500);
+          console.error(
+            `[bridge] session ${session.sessionId} (${project}) FAILED: claude exited ${exitCode}${signal ? ' signal=' + signal : ''}. Last output: ${JSON.stringify(tail)}`
+          );
           session.eventLog.append(EventKind.ERROR, {
             code: ErrorCode.PTY_EXIT_UNEXPECTED,
             message: `Claude Code PTY exited unexpectedly (exit code: ${exitCode}${signal ? ', signal: ' + signal : ''})`,
-            details: { exitCode, signal: signal || null },
+            details: { exitCode, signal: signal || null, tail },
           });
           session.transition(SessionState.FAILED);
         }
       } else if (session.state === SessionState.WAITING_FOR_PERMISSION) {
-        // PTY died while waiting for permission — emit error event
+        // PTY died while waiting for permission — log + emit error event
+        const tail = session.eventLog.getTranscript().slice(-500);
+        console.error(
+          `[bridge] session ${session.sessionId} (${project}) FAILED while waiting for permission: claude exited ${exitCode}${signal ? ' signal=' + signal : ''}.`
+        );
         session.eventLog.append(EventKind.ERROR, {
           code: ErrorCode.PTY_EXIT_UNEXPECTED,
           message: `Claude Code PTY exited while waiting for permission (exit code: ${exitCode}${signal ? ', signal: ' + signal : ''})`,
-          details: { exitCode, signal: signal || null },
+          details: { exitCode, signal: signal || null, tail },
         });
         session.pendingPermission = null;
         session.transition(SessionState.FAILED);
@@ -557,6 +609,9 @@ class SessionManager {
     ptyProc.on('error', (err) => {
       session.clearAllTimers();
       if (!session.isTerminal) {
+        console.error(
+          `[bridge] session ${session.sessionId} (${project}) PTY spawn error: ${err.message}`
+        );
         session.eventLog.append(EventKind.ERROR, {
           code: ErrorCode.PTY_EXIT_UNEXPECTED,
           message: `PTY error: ${err.message}`,

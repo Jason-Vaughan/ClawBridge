@@ -60,8 +60,8 @@ The right-hand column is mounted only when `CLAWBRIDGE_TOOLS_MODULE` points at a
 
 ### Session Flow
 
-1. Orchestrator starts a session via `POST /v2/session/start` with an approval envelope
-2. ClawBridge spawns Claude Code in a PTY
+1. Orchestrator starts a session via `POST /v2/session/start` with an `approvalEnvelope` and a `permissionMode` (set to `default` to engage the bridge's parser; see note below)
+2. ClawBridge spawns Claude Code in a PTY with `--permission-mode <value>`
 3. Claude Code works, triggering permission prompts for file writes, shell commands, etc.
 4. The bridge's permission parser detects prompts from raw PTY output
 5. The policy engine evaluates each permission against the approval envelope:
@@ -69,8 +69,16 @@ The right-hand column is mounted only when `CLAWBRIDGE_TOOLS_MODULE` points at a
    - **deny:** Bridge sends Escape after 500ms delay
    - **require_review:** Bridge pauses and surfaces the permission via the event stream
 6. Orchestrator polls `GET /v2/session/peek` for a quick snapshot or `GET /v2/session/output` for full events
-7. For permissions requiring review, orchestrator responds via `POST /v2/session/respond`
+7. For permissions requiring review, orchestrator responds via `POST /v2/session/respond` with `{ project, permissionId, decision }` where `decision` is one of `approve_once`, `deny`, or `abort_session`
 8. Session ends via `POST /v2/session/end` with optional transcript export
+
+> **Heads-up on `permissionMode`.** Claude Code 2.1.x defaults to *auto mode*, where it
+> classifies and auto-handles permission prompts internally — the bridge's TUI parser
+> never sees them, and `approvalEnvelope` has no effect. To engage the bridge's
+> structured permission review, set `permissionMode: "default"` (or any non-`auto`
+> value: `acceptEdits`, `bypassPermissions`, `plan`, `dontAsk`) on `/v2/session/start`.
+> Omitting the field falls back to Claude's default (auto mode) for backward
+> compatibility with existing deployments.
 
 ## When to Use ClawBridge
 
@@ -103,8 +111,14 @@ The right-hand column is mounted only when `CLAWBRIDGE_TOOLS_MODULE` points at a
 git clone https://github.com/Jason-Vaughan/ClawBridge.git
 cd ClawBridge
 npm install
-npx node-gyp rebuild
 ```
+
+`npm install` runs the bundled `scripts/postinstall.js`, which restores the
+exec bit on node-pty's prebuilt `spawn-helper` binaries on macOS (a common
+silent failure on fresh installs). If you ever see `posix_spawnp failed`
+errors at runtime, rerun `npm rebuild node-pty` from the project root and
+make sure `node_modules/node-pty/prebuilds/darwin-*/spawn-helper` is
+executable.
 
 ### 2. Configure environment
 
@@ -189,7 +203,7 @@ All endpoints require `Authorization: Bearer <token>` except `/health`.
 | `POST` | `/v2/session/end` | Graceful shutdown with optional wrap message |
 | `GET` | `/v2/session/output` | Poll events (cursor-based, long-poll via `waitMs`) |
 | `GET` | `/v2/session/peek` | Quick snapshot — state, tail output, test results, pending permissions |
-| `POST` | `/v2/session/respond` | Submit permission decision (approve, deny, abort) |
+| `POST` | `/v2/session/respond` | Submit permission decision (`approve_once`, `deny`, or `abort_session`) — requires `permissionId` from a pending permission |
 | `POST` | `/v2/session/send` | Send follow-up message to running session |
 | `POST` | `/v2/session/policy` | Update approval envelope mid-session |
 | `GET` | `/v2/session/transcript` | Full PTY transcript (live during session or after completion) |
@@ -240,7 +254,7 @@ Returns a single operational snapshot without cursor management:
 
 ### Approval Envelope
 
-The envelope tells ClawBridge which permissions to auto-handle vs. pause for review:
+The envelope tells ClawBridge which permissions to auto-handle vs. pause for review. **Important:** the envelope only governs behavior when `permissionMode` is set to a non-`auto` value (e.g. `default`) on `/v2/session/start`. Auto mode bypasses the bridge's permission parser entirely and Claude makes its own decisions; the envelope is ignored. See the [Session Flow](#session-flow) note above.
 
 ```json
 {

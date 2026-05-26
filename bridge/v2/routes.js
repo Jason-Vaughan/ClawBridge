@@ -32,6 +32,7 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
         approvalEnvelope: body.approvalEnvelope,
         timeout: body.timeout,
         promptTimeout: body.promptTimeout,
+        permissionMode: body.permissionMode,
       });
       json(res, 200, {
         ok: true,
@@ -44,7 +45,7 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
     } catch (err) {
       if (err.code === 'SESSION_EXISTS') {
         json(res, 409, { error: err.message });
-      } else if (err.code === 'INVALID_ENVELOPE') {
+      } else if (err.code === 'INVALID_ENVELOPE' || err.code === 'INVALID_PERMISSION_MODE') {
         json(res, 400, { error: err.message });
       } else {
         throw err;
@@ -529,9 +530,10 @@ function getApiDocs() {
         body: {
           project: { type: 'string', required: true, description: 'Project name (maps to directory under PROJECTS_DIR)' },
           instruction: { type: 'string', required: false, description: 'Initial instruction/prompt to send to Claude Code' },
-          approvalEnvelope: { type: 'object', required: false, description: 'Policy rules for auto-approving/denying permission prompts' },
+          approvalEnvelope: { type: 'object', required: false, description: 'Policy rules for auto-approving/denying permission prompts. Only governs behavior when permissionMode is not "auto" — auto mode bypasses the bridge\'s permission parser entirely.' },
           timeout: { type: 'number', required: false, description: 'Session runtime timeout in ms (default: 30 min)' },
           promptTimeout: { type: 'number', required: false, description: 'Prompt-wait timeout in ms (default: 5 min)' },
+          permissionMode: { type: 'string', required: false, description: 'Claude Code permission mode, passed as --permission-mode. One of: default, acceptEdits, bypassPermissions, auto, plan, dontAsk. Omit to use Claude\'s own default (currently "auto", which bypasses the bridge\'s permission parser). Set to "default" to engage the bridge\'s structured permission review.' },
         },
         returns: 'sessionId, project, state, createdAt, cursor',
       },
