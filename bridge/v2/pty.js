@@ -4,18 +4,32 @@ const { EventEmitter } = require('node:events');
 const { spawn } = require('node:child_process');
 
 /**
- * Try to load node-pty. Falls back to null if unavailable (e.g. sandbox).
+ * Try to load node-pty. Falls back to null if unavailable (e.g. sandbox, or
+ * native binding missing/unbuilt). When this returns null, all PtyProcess
+ * instances will use the child_process pipes fallback, which cannot drive
+ * Claude Code's interactive TUI — sessions will appear to start but Claude
+ * exits immediately. Surfaced via `ptyAvailable` so /health can warn.
  * @returns {object|null}
  */
 function loadNodePty() {
   try {
     return require('node-pty');
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[bridge] node-pty could not be loaded (${err.message}). All sessions will use the child_process pipes fallback, which CANNOT drive Claude Code's interactive TUI. Sessions will likely fail. Fix: \`npm rebuild node-pty\` in the ClawBridge project root.`
+    );
     return null;
   }
 }
 
 const nodePty = loadNodePty();
+
+/**
+ * Whether node-pty loaded successfully. Exposed so callers (e.g. /health) can
+ * surface the degraded "pipes-fallback" mode to operators.
+ * @type {boolean}
+ */
+const ptyAvailable = nodePty !== null;
 
 /**
  * Wrapper around node-pty (or child_process fallback) that provides a clean
@@ -103,6 +117,16 @@ class PtyProcess extends EventEmitter {
         this.emit('exit', { exitCode, signal });
       });
     } catch (err) {
+      // node-pty native spawn failures (e.g. spawn-helper missing exec bit on
+      // fresh installs) come through here. Log to bridge stdout so operators
+      // see the root cause; the 'error' event also fires for the session.
+      // Suppressed under vitest — several tests intentionally trigger this
+      // path (error-paths.test.js, send.test.js) and don't want stderr noise.
+      if (!process.env.VITEST) {
+        console.error(
+          `[bridge] node-pty failed to spawn ${this._command}: ${err.message}. Common cause on macOS: node_modules/node-pty/prebuilds/darwin-*/spawn-helper missing exec bit. Fix: \`chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper\` or rerun \`npm install\`.`
+        );
+      }
       this._exited = true;
       this._exitCode = 1;
       process.nextTick(() => this.emit('error', err));
@@ -246,4 +270,4 @@ class PtyProcess extends EventEmitter {
   }
 }
 
-module.exports = { PtyProcess };
+module.exports = { PtyProcess, ptyAvailable };

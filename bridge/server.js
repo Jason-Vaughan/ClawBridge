@@ -7,6 +7,7 @@ const fs = require('node:fs');
 
 // ── v2 PTY broker ──
 const { SessionManager } = require('./v2/sessions');
+const { ptyAvailable } = require('./v2/pty');
 const { handleV2Route } = require('./v2/routes');
 
 // ── Load .env ──
@@ -32,7 +33,7 @@ const TOKEN = process.env.BRIDGE_TOKEN || '';
 const HOME = process.env.HOME || '';
 const PROJECTS_DIR = process.env.PROJECTS_DIR || path.join(HOME, 'projects');
 const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
-const CLAUDE_BIN = '/usr/local/bin/claude';
+const CLAUDE_BIN = process.env.CLAUDE_BIN || '/usr/local/bin/claude';
 const PRAWDUCT_SETUP = path.join(PRAWDUCT_DIR, 'tools', 'prawduct-setup.py');
 
 /**
@@ -717,7 +718,8 @@ const server = http.createServer(async (req, res) => {
         claude: claudeVersion,
         prawduct: prawductExists ? 'available' : 'not found',
         projectsDir: PROJECTS_DIR,
-        activeSessions: v2SessionManager.activeCount
+        activeSessions: v2SessionManager.activeCount,
+        ptyMode: ptyAvailable ? 'pty' : 'pipes-fallback',
       };
 
       if (toolsExtension) {

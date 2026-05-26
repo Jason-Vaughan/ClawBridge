@@ -29,6 +29,8 @@
   "files": [
     "bridge/",
     "docs/",
+    "examples/",
+    "scripts/",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -36,7 +38,8 @@
   "scripts": {
     "start": "node bridge/server.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "node scripts/postinstall.js"
   },
   "dependencies": {
     "node-pty": "^1.0.0"

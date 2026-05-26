@@ -190,6 +190,99 @@ describe('getApiDocs', () => {
       expect(ep.description).toBeDefined();
     }
   });
+
+  it('documents permissionMode on /v2/session/start (closes #2)', () => {
+    const docs = getApiDocs();
+    const start = docs.endpoints.find((e) => e.path === '/v2/session/start');
+    expect(start).toBeDefined();
+    expect(start.body.permissionMode).toBeDefined();
+    expect(start.body.permissionMode.required).toBe(false);
+    // Description must enumerate the valid values so api-docs is self-describing.
+    expect(start.body.permissionMode.description).toContain('default');
+    expect(start.body.permissionMode.description).toContain('auto');
+    // Description must call out the auto-mode-bypasses-parser caveat that
+    // motivated this field (see ClawBridge#2).
+    expect(start.body.permissionMode.description.toLowerCase()).toContain('auto');
+  });
+});
+
+// ── session/start route forwards permissionMode (closes #2) ──
+
+describe('session/start route + permissionMode', () => {
+  const { handleV2Route } = require('../routes');
+  const { SessionManager } = require('../sessions');
+  const os = require('node:os');
+  const path = require('node:path');
+  const fs = require('node:fs');
+
+  const TEST_DIR = path.join(os.tmpdir(), `clawbridge-startroute-test-${Date.now()}`);
+  let manager;
+
+  /** Build a mockRoute that simulates a POST with a JSON body. */
+  function mockPost(pathname, body) {
+    let captured = null;
+    return {
+      method: 'POST',
+      pathname,
+      url: new URL(`http://localhost${pathname}`),
+      req: {},
+      res: {},
+      parseBody: async () => body,
+      json: (_res, status, b) => { captured = { status, body: b }; },
+      captured: () => captured,
+    };
+  }
+
+  beforeEach(() => {
+    fs.mkdirSync(TEST_DIR, { recursive: true });
+    manager = new SessionManager({
+      projectsDir: TEST_DIR,
+      claudeBin: '/bin/echo',
+      usePipes: true,
+    });
+  });
+
+  afterEach(() => {
+    manager.destroyAll();
+    try { fs.rmSync(TEST_DIR, { recursive: true, force: true }); } catch {}
+  });
+
+  it('forwards permissionMode to the session (omitted → no permissionMode on session)', async () => {
+    const m = mockPost('/v2/session/start', { project: 'no-mode' });
+    await handleV2Route({ ...m, sessionManager: manager });
+    expect(m.captured().status).toBe(200);
+    const session = manager.get('no-mode');
+    expect(session).toBeDefined();
+    expect(session.permissionMode).toBeUndefined();
+  });
+
+  it('forwards permissionMode=default to the session', async () => {
+    const m = mockPost('/v2/session/start', { project: 'default-mode', permissionMode: 'default' });
+    await handleV2Route({ ...m, sessionManager: manager });
+    expect(m.captured().status).toBe(200);
+    const session = manager.get('default-mode');
+    expect(session.permissionMode).toBe('default');
+  });
+
+  it('returns 400 on invalid permissionMode', async () => {
+    const m = mockPost('/v2/session/start', { project: 'wild-mode', permissionMode: 'definitely-not-a-real-mode' });
+    await handleV2Route({ ...m, sessionManager: manager });
+    const result = m.captured();
+    expect(result.status).toBe(400);
+    expect(result.body.error).toContain('definitely-not-a-real-mode');
+    expect(result.body.error).toContain('default');
+    // Session must not have been created for an invalid permissionMode.
+    expect(manager.get('wild-mode')).toBeUndefined();
+  });
+});
+
+// ── pty.js exports ptyAvailable for /health surfacing ──
+
+describe('pty module exports', () => {
+  it('exports ptyAvailable as a boolean', () => {
+    const { ptyAvailable } = require('../pty');
+    expect(typeof ptyAvailable).toBe('boolean');
+  });
 });
 
 // ── Peek route integration (via handleV2Route) ──

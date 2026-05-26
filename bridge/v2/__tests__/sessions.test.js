@@ -309,3 +309,85 @@ describe('SessionManager PTY integration', () => {
     expect(s2.state).toBe(SessionState.RUNNING);
   });
 });
+
+// ── permissionMode plumbing (closes ClawBridge#2) ──
+
+describe('SessionManager permissionMode', () => {
+  let manager;
+  const projectsDir = '/tmp/bridge-v2-test-projects';
+
+  beforeEach(() => {
+    manager = new SessionManager({
+      projectsDir,
+      claudeBin: '/bin/echo',
+      usePipes: true,
+    });
+  });
+
+  afterEach(() => {
+    manager.destroyAll();
+  });
+
+  async function captureSpawnArgs(project, options) {
+    const chunks = [];
+    const session = manager.start(project, options);
+    session.pty.on('data', (data) => chunks.push(data));
+    await new Promise((resolve) => {
+      if (session.pty.exited) return resolve();
+      session.pty.on('exit', resolve);
+    });
+    return { session, output: chunks.join('') };
+  }
+
+  it('omits --permission-mode when permissionMode is not set (Option A: backward compat)', async () => {
+    const { output, session } = await captureSpawnArgs('no-mode-project', { instruction: 'sentinel-arg' });
+    expect(output).toContain('sentinel-arg');
+    expect(output).not.toContain('--permission-mode');
+    expect(session.permissionMode).toBeUndefined();
+  });
+
+  it('appends --permission-mode default when set to default', async () => {
+    const { output, session } = await captureSpawnArgs('default-mode-project', {
+      instruction: 'sentinel-arg',
+      permissionMode: 'default',
+    });
+    expect(output).toContain('--permission-mode');
+    expect(output).toContain('default');
+    expect(output).toContain('sentinel-arg');
+    expect(session.permissionMode).toBe('default');
+  });
+
+  it.each(['acceptEdits', 'bypassPermissions', 'auto', 'plan', 'dontAsk'])(
+    'accepts and forwards permissionMode=%s',
+    async (mode) => {
+      const { output, session } = await captureSpawnArgs(`mode-${mode}-project`, {
+        permissionMode: mode,
+      });
+      expect(output).toContain('--permission-mode');
+      expect(output).toContain(mode);
+      expect(session.permissionMode).toBe(mode);
+    }
+  );
+
+  it('throws INVALID_PERMISSION_MODE for unknown values', () => {
+    try {
+      manager.start('invalid-mode-project', { permissionMode: 'wildmode' });
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err.code).toBe('INVALID_PERMISSION_MODE');
+      expect(err.message).toContain('wildmode');
+      expect(err.message).toContain('default');
+    }
+  });
+
+  it('treats null and undefined permissionMode the same (no flag)', async () => {
+    const { output: outUndef } = await captureSpawnArgs('undef-mode-project', {
+      permissionMode: undefined,
+    });
+    const { output: outNull } = await captureSpawnArgs('null-mode-project', {
+      permissionMode: null,
+    });
+    expect(outUndef).not.toContain('--permission-mode');
+    expect(outNull).not.toContain('--permission-mode');
+  });
+});
