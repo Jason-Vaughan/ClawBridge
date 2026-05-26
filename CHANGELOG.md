@@ -4,6 +4,8 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-05-26
+
 ### Added
 - **`permissionMode` field on `POST /v2/session/start`** (closes [#2](https://github.com/Jason-Vaughan/ClawBridge/issues/2)). Accepts `default`, `acceptEdits`, `bypassPermissions`, `auto`, `plan`, or `dontAsk` and forwards as `--permission-mode <value>` to the claude spawn. Surfaced by a smoke test that found Claude Code 2.1.x's default auto mode bypasses the bridge's permission parser entirely — `approvalEnvelope` had no observable effect until callers could opt into a non-auto mode. Omitted = no flag = Claude's default (Option A: backward-compatible for existing deployments). Set `permissionMode: "default"` to engage the bridge's structured permission review.
 - **`ptyMode` field in `/health`** — reports `pty` when node-pty loaded successfully, `pipes-fallback` when it didn't. Lets operators detect the degraded state (the pipes fallback cannot drive Claude Code's TUI; sessions appear to start but fail immediately).

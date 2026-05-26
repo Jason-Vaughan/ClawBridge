@@ -1,6 +1,6 @@
 {
   "name": "@jason-vaughan/clawbridge",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": false,
   "description": "ClawBridge — PTY permission-broker bridge for orchestrating Claude Code sessions",
   "keywords": [
