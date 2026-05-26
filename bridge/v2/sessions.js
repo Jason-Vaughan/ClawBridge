@@ -573,11 +573,14 @@ class SessionManager {
         } else {
           // Unexpected exit — log to bridge stdout (orchestrators can poll
           // /v2/session/output for the structured event, but operators tailing
-          // bridge logs need visibility too) and emit error event.
+          // bridge logs need visibility too) and emit error event. Suppressed
+          // under vitest (see pty.js for rationale).
           const tail = session.eventLog.getTranscript().slice(-500);
-          console.error(
-            `[bridge] session ${session.sessionId} (${project}) FAILED: claude exited ${exitCode}${signal ? ' signal=' + signal : ''}. Last output: ${JSON.stringify(tail)}`
-          );
+          if (!process.env.VITEST) {
+            console.error(
+              `[bridge] session ${session.sessionId} (${project}) FAILED: claude exited ${exitCode}${signal ? ' signal=' + signal : ''}. Last output: ${JSON.stringify(tail)}`
+            );
+          }
           session.eventLog.append(EventKind.ERROR, {
             code: ErrorCode.PTY_EXIT_UNEXPECTED,
             message: `Claude Code PTY exited unexpectedly (exit code: ${exitCode}${signal ? ', signal: ' + signal : ''})`,
@@ -588,9 +591,11 @@ class SessionManager {
       } else if (session.state === SessionState.WAITING_FOR_PERMISSION) {
         // PTY died while waiting for permission — log + emit error event
         const tail = session.eventLog.getTranscript().slice(-500);
-        console.error(
-          `[bridge] session ${session.sessionId} (${project}) FAILED while waiting for permission: claude exited ${exitCode}${signal ? ' signal=' + signal : ''}.`
-        );
+        if (!process.env.VITEST) {
+          console.error(
+            `[bridge] session ${session.sessionId} (${project}) FAILED while waiting for permission: claude exited ${exitCode}${signal ? ' signal=' + signal : ''}.`
+          );
+        }
         session.eventLog.append(EventKind.ERROR, {
           code: ErrorCode.PTY_EXIT_UNEXPECTED,
           message: `Claude Code PTY exited while waiting for permission (exit code: ${exitCode}${signal ? ', signal: ' + signal : ''})`,
@@ -609,9 +614,11 @@ class SessionManager {
     ptyProc.on('error', (err) => {
       session.clearAllTimers();
       if (!session.isTerminal) {
-        console.error(
-          `[bridge] session ${session.sessionId} (${project}) PTY spawn error: ${err.message}`
-        );
+        if (!process.env.VITEST) {
+          console.error(
+            `[bridge] session ${session.sessionId} (${project}) PTY spawn error: ${err.message}`
+          );
+        }
         session.eventLog.append(EventKind.ERROR, {
           code: ErrorCode.PTY_EXIT_UNEXPECTED,
           message: `PTY error: ${err.message}`,

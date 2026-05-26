@@ -120,9 +120,13 @@ class PtyProcess extends EventEmitter {
       // node-pty native spawn failures (e.g. spawn-helper missing exec bit on
       // fresh installs) come through here. Log to bridge stdout so operators
       // see the root cause; the 'error' event also fires for the session.
-      console.error(
-        `[bridge] node-pty failed to spawn ${this._command}: ${err.message}. Common cause on macOS: node_modules/node-pty/prebuilds/darwin-*/spawn-helper missing exec bit. Fix: \`chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper\` or rerun \`npm install\`.`
-      );
+      // Suppressed under vitest — several tests intentionally trigger this
+      // path (error-paths.test.js, send.test.js) and don't want stderr noise.
+      if (!process.env.VITEST) {
+        console.error(
+          `[bridge] node-pty failed to spawn ${this._command}: ${err.message}. Common cause on macOS: node_modules/node-pty/prebuilds/darwin-*/spawn-helper missing exec bit. Fix: \`chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper\` or rerun \`npm install\`.`
+        );
+      }
       this._exited = true;
       this._exitCode = 1;
       process.nextTick(() => this.emit('error', err));
