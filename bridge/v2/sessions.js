@@ -300,6 +300,14 @@ class SessionManager {
    *   bypassPermissions, auto, plan, dontAsk. When omitted, no flag is passed and Claude
    *   uses its own default (currently `auto`, which bypasses the bridge's permission
    *   parser). Set to `default` to engage the bridge's structured permission review.
+   * @param {boolean} [options.attachIfExists] - When true and a non-terminal session
+   *   already exists for this project, return the existing Session instead of throwing
+   *   SESSION_EXISTS. The existing session is **not** mutated — instruction,
+   *   approvalEnvelope, permissionMode, and timeouts from this call are ignored on
+   *   attach (use POST /v2/session/policy or /v2/session/send for mid-session changes).
+   *   Caller can determine attach-vs-create by comparing the returned Session's
+   *   sessionId/createdAt against what they expected. Default false → 409 preserved.
+   *   Closes ClawBridge#5.
    * @returns {Session}
    */
   start(project, options = {}) {
@@ -308,6 +316,14 @@ class SessionManager {
       // Allow starting a new session if previous one is in any terminal state
       // (completed, failed, timed_out, ended). Only block if actively running.
       if (!existing.isTerminal) {
+        if (options.attachIfExists) {
+          // Attach: return the existing live session as-is. We intentionally
+          // do NOT apply any of the new options (instruction/permissionMode/
+          // approvalEnvelope/timeouts) — spawn args were committed at create
+          // time and the approval envelope has its own update endpoint
+          // (POST /v2/session/policy). This keeps attach a pure read.
+          return existing;
+        }
         const err = new Error(`Session already exists for project '${project}' (state: ${existing.state})`);
         err.code = 'SESSION_EXISTS';
         throw err;
