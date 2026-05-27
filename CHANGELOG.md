@@ -4,6 +4,8 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-05-26
+
 ### Added
 - **`attachIfExists` field on `POST /v2/session/start`** (closes [#5](https://github.com/Jason-Vaughan/ClawBridge/issues/5)). Optional boolean (default `false` — fully backward-compatible). When `true` and a non-terminal session already exists for the project, returns `200` with the existing session's `sessionId`, `state`, `createdAt`, and the current `cursor` (so the caller can resume polling from where the session stands) instead of `409 SESSION_EXISTS`. Response also includes `attached: true|false` so callers can tell create-from-attach. The existing session is **not** mutated on attach — `instruction`, `permissionMode`, `approvalEnvelope`, and timeouts from the attaching call are ignored (use `/v2/session/policy` or `/v2/session/send` for mid-session changes). Motivated by [TangleClaw#210](https://github.com/Jason-Vaughan/TangleClaw/issues/210) coordination: TC pre-creates a session via the SSH tunnel, then OpenClaw's chat UI calls `session/start` again on load — `attachIfExists` lets the chat UI always-call without 409 handling. Useful for any orchestrator that pre-creates sessions.
 
