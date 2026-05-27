@@ -26,6 +26,14 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
       return true;
     }
 
+    // Observe pre-existing session state before calling start() so we can
+    // distinguish attach-from-existing vs create-new in the response. Used
+    // by the attachIfExists path (closes #5). When attachIfExists is false
+    // or omitted, this never matters because start() either creates a fresh
+    // session or throws SESSION_EXISTS.
+    const preExisting = sessionManager.get(body.project);
+    const wasNonTerminal = !!(preExisting && !preExisting.isTerminal);
+
     try {
       const session = sessionManager.start(body.project, {
         instruction: body.instruction,
@@ -33,14 +41,21 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
         timeout: body.timeout,
         promptTimeout: body.promptTimeout,
         permissionMode: body.permissionMode,
+        attachIfExists: body.attachIfExists,
       });
+      // attached === true only when the caller asked for attachIfExists AND
+      // the returned Session is the same object the manager already held.
+      const attached = wasNonTerminal && session === preExisting;
       json(res, 200, {
         ok: true,
         sessionId: session.sessionId,
         project: session.project,
         state: session.state,
         createdAt: session.createdAt,
-        cursor: 0,
+        // For attached sessions, expose the current event-log cursor so the
+        // caller can resume polling from where things stand instead of from 0.
+        cursor: attached ? session.eventLog.cursor : 0,
+        attached,
       });
     } catch (err) {
       if (err.code === 'SESSION_EXISTS') {
@@ -534,8 +549,9 @@ function getApiDocs() {
           timeout: { type: 'number', required: false, description: 'Session runtime timeout in ms (default: 30 min)' },
           promptTimeout: { type: 'number', required: false, description: 'Prompt-wait timeout in ms (default: 5 min)' },
           permissionMode: { type: 'string', required: false, description: 'Claude Code permission mode, passed as --permission-mode. One of: default, acceptEdits, bypassPermissions, auto, plan, dontAsk. Omit to use Claude\'s own default (currently "auto", which bypasses the bridge\'s permission parser). Set to "default" to engage the bridge\'s structured permission review.' },
+          attachIfExists: { type: 'boolean', required: false, description: 'When true and a non-terminal session already exists for this project, return 200 with the existing session (instead of 409 SESSION_EXISTS). The existing session is not mutated — instruction/permissionMode/approvalEnvelope from this call are ignored on attach. Response includes `attached: true` and the current `cursor` (resume polling from there). Default false preserves the 409 behavior. Closes ClawBridge#5.' },
         },
-        returns: 'sessionId, project, state, createdAt, cursor',
+        returns: 'sessionId, project, state, createdAt, cursor, attached (true if attached to an existing session via attachIfExists, false if a new session was created)',
       },
       {
         method: 'GET',

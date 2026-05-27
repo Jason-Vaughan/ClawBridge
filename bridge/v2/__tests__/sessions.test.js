@@ -391,3 +391,114 @@ describe('SessionManager permissionMode', () => {
     expect(outNull).not.toContain('--permission-mode');
   });
 });
+
+// ── attachIfExists plumbing (closes ClawBridge#5) ──
+
+describe('SessionManager attachIfExists', () => {
+  let manager;
+  const projectsDir = '/tmp/bridge-v2-test-projects';
+
+  beforeEach(() => {
+    manager = new SessionManager({
+      projectsDir,
+      claudeBin: '/bin/cat', // cat waits for stdin — keeps session alive
+      usePipes: true,
+    });
+  });
+
+  afterEach(() => {
+    manager.destroyAll();
+  });
+
+  it('omitted attachIfExists → 409 path preserved (backward compat)', () => {
+    manager.start('compat-omit');
+    try {
+      manager.start('compat-omit');
+      expect.fail('Should have thrown SESSION_EXISTS');
+    } catch (err) {
+      expect(err.code).toBe('SESSION_EXISTS');
+    }
+  });
+
+  it('attachIfExists=false → 409 path preserved (backward compat)', () => {
+    manager.start('compat-false');
+    try {
+      manager.start('compat-false', { attachIfExists: false });
+      expect.fail('Should have thrown SESSION_EXISTS');
+    } catch (err) {
+      expect(err.code).toBe('SESSION_EXISTS');
+    }
+  });
+
+  it('attachIfExists=true + running session → returns existing Session (same object)', () => {
+    const first = manager.start('attach-running');
+    expect(first.state).toBe(SessionState.RUNNING);
+
+    const second = manager.start('attach-running', { attachIfExists: true });
+    expect(second).toBe(first);
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(second.createdAt).toBe(first.createdAt);
+  });
+
+  it('attachIfExists=true + waiting_for_permission session → returns existing Session', () => {
+    const first = manager.start('attach-waiting');
+    first.transition(SessionState.WAITING_FOR_PERMISSION);
+
+    const second = manager.start('attach-waiting', { attachIfExists: true });
+    expect(second).toBe(first);
+    expect(second.state).toBe(SessionState.WAITING_FOR_PERMISSION);
+  });
+
+  it('attachIfExists=true + terminal session → creates new Session (no conflict to resolve)', () => {
+    const first = manager.start('attach-terminal');
+    first.transition(SessionState.COMPLETED);
+    expect(first.isTerminal).toBe(true);
+
+    const second = manager.start('attach-terminal', { attachIfExists: true });
+    expect(second).not.toBe(first);
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(second.state).toBe(SessionState.RUNNING);
+  });
+
+  it('attachIfExists=true + no existing session → creates fresh session', () => {
+    const session = manager.start('attach-fresh', { attachIfExists: true });
+    expect(session.sessionId).toMatch(/^sess_/);
+    expect(session.state).toBe(SessionState.RUNNING);
+  });
+
+  it('attach does NOT mutate the existing session (instruction/envelope/permissionMode ignored)', () => {
+    const first = manager.start('attach-immutable', { permissionMode: 'default' });
+    const originalSessionId = first.sessionId;
+    const originalCreatedAt = first.createdAt;
+    const originalPermissionMode = first.permissionMode;
+    expect(originalPermissionMode).toBe('default');
+
+    // Try to "change" the attached session with different opts. The attach
+    // path must ignore them — these would be applied on a fresh create only.
+    const second = manager.start('attach-immutable', {
+      attachIfExists: true,
+      instruction: 'ignored',
+      permissionMode: 'bypassPermissions',
+      approvalEnvelope: {
+        mode: 'scoped',
+        rules: {
+          fileWrites: { withinProject: 'deny', outsideProject: 'deny' },
+          fileDeletes: { withinProject: 'deny', outsideProject: 'deny' },
+          shellCommands: { allowlist: [], allowlistPolicy: 'auto_approve', otherPolicy: 'deny' },
+          gitOperations: { safe: 'deny', destructive: 'deny' },
+          dependencyChanges: 'deny',
+          networkAccess: 'deny',
+          unknown: 'deny',
+        },
+        defaults: { lowRisk: 'deny', mediumRisk: 'deny', highRisk: 'deny' },
+      },
+    });
+
+    expect(second).toBe(first);
+    expect(second.sessionId).toBe(originalSessionId);
+    expect(second.createdAt).toBe(originalCreatedAt);
+    // permissionMode is immutable — claude was spawned with --permission-mode default,
+    // we can't change it after spawn, so the attach must preserve the original.
+    expect(second.permissionMode).toBe('default');
+  });
+});

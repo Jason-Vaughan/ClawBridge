@@ -204,6 +204,18 @@ describe('getApiDocs', () => {
     // motivated this field (see ClawBridge#2).
     expect(start.body.permissionMode.description.toLowerCase()).toContain('auto');
   });
+
+  it('documents attachIfExists on /v2/session/start (closes #5)', () => {
+    const docs = getApiDocs();
+    const start = docs.endpoints.find((e) => e.path === '/v2/session/start');
+    expect(start.body.attachIfExists).toBeDefined();
+    expect(start.body.attachIfExists.required).toBe(false);
+    expect(start.body.attachIfExists.type).toBe('boolean');
+    // Description must explain the 409→200 substitution behavior.
+    expect(start.body.attachIfExists.description).toMatch(/409|SESSION_EXISTS|attach/i);
+    // Returns string must mention `attached`.
+    expect(start.returns).toContain('attached');
+  });
 });
 
 // ── session/start route forwards permissionMode (closes #2) ──
@@ -273,6 +285,72 @@ describe('session/start route + permissionMode', () => {
     expect(result.body.error).toContain('default');
     // Session must not have been created for an invalid permissionMode.
     expect(manager.get('wild-mode')).toBeUndefined();
+  });
+
+  // ── attachIfExists route plumbing (closes #5) ──
+
+  it('attachIfExists omitted → fresh create returns attached:false', async () => {
+    const m = mockPost('/v2/session/start', { project: 'attached-flag-omit' });
+    await handleV2Route({ ...m, sessionManager: manager });
+    expect(m.captured().status).toBe(200);
+    expect(m.captured().body.attached).toBe(false);
+    expect(m.captured().body.cursor).toBe(0);
+  });
+
+  it('attachIfExists omitted + conflict → 409 unchanged', async () => {
+    await handleV2Route({ ...mockPost('/v2/session/start', { project: 'attached-flag-conflict' }), sessionManager: manager });
+    const m2 = mockPost('/v2/session/start', { project: 'attached-flag-conflict' });
+    await handleV2Route({ ...m2, sessionManager: manager });
+    expect(m2.captured().status).toBe(409);
+    expect(m2.captured().body.error).toContain('Session already exists');
+  });
+
+  it('attachIfExists=true + running → 200 + attached:true + existing sessionId', async () => {
+    const m1 = mockPost('/v2/session/start', { project: 'attach-route' });
+    await handleV2Route({ ...m1, sessionManager: manager });
+    const firstSessionId = m1.captured().body.sessionId;
+
+    // Inject some events so the cursor advances past 0
+    const session = manager.get('attach-route');
+    session.eventLog.appendText('intermediate output line 1\nline 2\n');
+    const expectedCursor = session.eventLog.cursor;
+    expect(expectedCursor).toBeGreaterThan(0);
+
+    const m2 = mockPost('/v2/session/start', { project: 'attach-route', attachIfExists: true });
+    await handleV2Route({ ...m2, sessionManager: manager });
+
+    const result = m2.captured();
+    expect(result.status).toBe(200);
+    expect(result.body.attached).toBe(true);
+    expect(result.body.sessionId).toBe(firstSessionId);
+    expect(result.body.cursor).toBe(expectedCursor);
+  });
+
+  it('attachIfExists=true + no existing session → fresh create, attached:false, cursor:0', async () => {
+    const m = mockPost('/v2/session/start', { project: 'attach-fresh-route', attachIfExists: true });
+    await handleV2Route({ ...m, sessionManager: manager });
+    expect(m.captured().status).toBe(200);
+    expect(m.captured().body.attached).toBe(false);
+    expect(m.captured().body.cursor).toBe(0);
+  });
+
+  it('attachIfExists=true + terminal session → fresh create with new sessionId, attached:false', async () => {
+    const m1 = mockPost('/v2/session/start', { project: 'attach-after-terminal' });
+    await handleV2Route({ ...m1, sessionManager: manager });
+    const firstSessionId = m1.captured().body.sessionId;
+
+    // Force the session into a terminal state
+    const session = manager.get('attach-after-terminal');
+    session.transition('completed');
+    expect(session.isTerminal).toBe(true);
+
+    const m2 = mockPost('/v2/session/start', { project: 'attach-after-terminal', attachIfExists: true });
+    await handleV2Route({ ...m2, sessionManager: manager });
+    const result = m2.captured();
+    expect(result.status).toBe(200);
+    expect(result.body.attached).toBe(false);
+    expect(result.body.sessionId).not.toBe(firstSessionId);
+    expect(result.body.cursor).toBe(0);
   });
 });
 
