@@ -1,83 +1,59 @@
-# ClawBridge host-tools mount fix — builder-session priming
+# ClawBridge host-tools client extension — builder-session launch pointer
 
-**Role:** Builder session for `Jason-Vaughan/ClawBridge`, fixing the OpenClaw agent's lost
-host-exec / ClawBridge tool access on habitat.
+**Role:** Build session for `Jason-Vaughan/ClawBridge` — author the container-side `/tools/*`
+client so the OpenClaw agent on habitat can reach ClawBridge (cron monitoring is down without it).
 
-**Tracking issue:** [Jason-Vaughan/ClawBridge#8](https://github.com/Jason-Vaughan/ClawBridge/issues/8) (filed 2026-06-02).
+**Source of truth (read in this order):**
+- **[ClawBridge#10](https://github.com/Jason-Vaughan/ClawBridge/issues/10) — CANONICAL** (corrected
+  diagnosis + deliverable + acceptance). Start here.
+- [ClawBridge#8](https://github.com/Jason-Vaughan/ClawBridge/issues/8) — prior investigation,
+  CLOSED. Its "3 config edits" fix proposal was based on a **wrong premise** (no exec-approvals
+  socket exists; `admin-http-rpc` is non-capability; `OPENCLAW_EXTENSIONS` was always empty;
+  `clawbridge-extension.cjs` is bridge-side only). **#10 supersedes #8's fix direction.**
 
----
+> ⚠️ The detailed "likely fix direction" that used to live in this file (socket mount, etc.) was
+> the #8 premise and is **wrong** — deleted on 2026-06-03. Treat #10 as truth.
 
 ## Paste this to launch the session
 
-> You are the ClawBridge builder session. The OpenClaw agent running on habitat
-> (`openclaw-openclaw-gateway-1`, RentalClaw deployment) has **lost host-tool access**: its
-> autonomous cron jobs can no longer run shell commands or make authenticated HTTP calls to
-> ClawBridge, so all host-side monitoring (VRBO/Airbnb/WhatsApp checks) is down. Read the
-> tracking issue Jason-Vaughan/ClawBridge#8 and the diagnostic below, then design + implement
-> the fix in the ClawBridge repo and/or the habitat `~/openclaw` deployment. Do **not** assume —
-> verify current state on habitat first (`ssh habitat`). Coordinator session has the full
-> history; this brief is the cold-start.
+```
+You are the ClawBridge build session for Jason-Vaughan/ClawBridge.
 
----
+Build task: author the missing CLIENT half of the /tools/* contract so a containerized
+OpenClaw agent can call ClawBridge. ClawBridge already SERVES /tools/* (healthy, 14 caps);
+nothing consumes it from inside the agent container.
 
-## Diagnostic (verified 2026-06-02, by the coordinator session)
+Read first (in this repo):
+- `gh issue view 10`  ← corrected canonical diagnosis + deliverable + acceptance criteria.
+- `gh issue view 8`   ← prior investigation (CLOSED). Its "3 config edits" were a wrong premise;
+  #10 supersedes it.
 
-Root symptom: the gateway's embedded/cron agent runtime exposes **no exec/shell tool and no
-authenticated-HTTP tool**, so cron payloads that shell out or `curl http://host.docker.internal:3201`
-(ClawBridge) fail with *"this runtime does not expose a callable exec/shell tool"* /
-*"tool_search found no callable terminal/PTY alternative."*
+Deliverable (this repo):
+1. A container-side OpenClaw *capability* extension implementing the /tools/* client: bearer
+   auth via CLAWBRIDGE_TOKEN, discover the capability set via /v2/api-docs, expose as OpenClaw
+   agent tool(s). (Contract: docs/tools-extension.md + /v2/api-docs.)
+2. `examples/tools-extension-client.js` cookbook — the bearer-token request pattern from a
+   container to host.docker.internal:3201/tools/*.
+3. Package so RentalClaw can `openclaw plugins install` it and list it in OPENCLAW_EXTENSIONS.
 
-Verified facts:
-- `CLAWBRIDGE_TOOLS_MODULE` is **unset** in the `openclaw-openclaw-gateway-1` container env.
-- Agent's 12 loaded plugins contain **no exec/shell/host-tools plugin**:
-  `browser, canvas, codex, device-pair, discord, file-transfer, github-copilot, memory-core,
-  phone-control, talk-voice, tangleclaw-google-oauth, whatsapp`.
-- ClawBridge **is alive and reachable** from the container:
-  `docker exec openclaw-openclaw-gateway-1 curl -s -o /dev/null -w '%{http_code}'
-  http://host.docker.internal:3201/` → **401** (up, token-gated).
-- `~/openclaw/docker-compose.yml` and `~/openclaw/.env` contain **no** reference to ClawBridge,
-  a tools module, or `CLAWBRIDGE_TOOLS_MODULE`. So either the mount was never in this stack's
-  compose, or a prior container had the env set out-of-band and tonight's
-  `docker compose up -d` (OpenClaw 2026.5.6 → 2026.5.28 update) recreated it without the env.
-- `~/.openclaw/exec-approvals.json` exists and `openclaw approvals` is a real command — relevant
-  to how host-exec is gated.
-- Per project memory, ClawBridge host-tools are meant to mount into OpenClaw via
-  `CLAWBRIDGE_TOOLS_MODULE` (`@jason-vaughan/clawbridge` npm; tools mount via that env).
+Verified healthy — keep scope on the client, do NOT touch: ClawBridge process (/health 200,
+:3201, 14 caps), auth gating (401 unauth), and the bridge plist (CLAWBRIDGE_TOOLS_MODULE correct).
 
-Likely fix direction (validate, don't assume):
-1. Restore `CLAWBRIDGE_TOOLS_MODULE` (pointing at the clawbridge tools module) into the
-   habitat `~/openclaw` compose/.env **and** ensure the module file is present/mounted in the
-   container, **or** load the equivalent OpenClaw plugin that brokers ClawBridge calls.
-2. Confirm the agent then has a callable tool to reach `host.docker.internal:3201` with the
-   ClawBridge auth token (the 401 means a token is required — wire it).
-3. Re-validate against `openclaw 2026.5.28` tool/plugin model (the version may have changed how
-   external tool modules or exec approvals load; `plugins.allow` is currently empty).
+Boundary: the habitat ~/openclaw deployment (install + wire OPENCLAW_EXTENSIONS + CLAWBRIDGE_TOKEN
+env + restart + re-enable the 5 paused crons + rotate the 5 secrets from #8's security note) is
+RentalClaw's to do — hand that back via paste-back, don't commit into RentalClaw.
 
-Acceptance criteria:
-- An autonomous cron run (e.g. re-enable `gabby-vrbo-daily-booking`) can authenticate to
-  ClawBridge `:3201` and execute its host check without the "no exec tool" error.
+Acceptance: the agent gets a callable tool that authenticates (200) to host.docker.internal:3201
+/tools/*, and a re-enabled cron (gabby-vrbo-daily-booking fbc48af9-…) runs without the
+"no callable exec/shell tool" error.
+```
 
-## What the coordinator changed tonight (REVERT/re-enable after the fix)
-- **Disabled 5 cron jobs** to stop Discord error-spam — re-enable once tools work:
-  - `bc874630` jaq-whatsapp-health (every 15m)
-  - `bbc3714f` gabby-airbnb-daily-booking
-  - `fbc48af9` gabby-vrbo-daily-booking
-  - `4b2c55bd` airbnb-session-heartbeat (every 7h)
-  - `e2e09d2e` Booking/message check (every 2h)
-  - Re-enable with: `docker exec openclaw-openclaw-gateway-1 openclaw cron enable <id>`
-- Unrelated changes made same session (context, not yours to touch): codex re-auth + stale
-  profile cleanup, OpenClaw update to 2026.5.28, session model-pins flipped back to
-  `openai-codex/gpt-5.4`, fallback changed to `openai-codex/gpt-5.5`. Codex is healthy.
-
-## Boundaries
-- This is the ClawBridge builder session — own the ClawBridge repo. The habitat `~/openclaw`
-  deployment is RentalClaw turf; coordinate via paste-back if a deployment-config change is
-  needed there rather than committing into RentalClaw from here.
-
-## How to use
-Paste the block under "Paste this to launch the session" into a fresh ClawBridge session. The
-tracking issue (ClawBridge#8) carries the same diagnostic in GitHub.
+## RentalClaw-side follow-through (after the client ships)
+Install + wire on habitat `~/openclaw`, restart, then re-enable the 5 paused crons:
+`bc874630` whatsapp-health · `bbc3714f` airbnb-daily · `fbc48af9` vrbo-daily ·
+`4b2c55bd` airbnb-heartbeat · `e2e09d2e` booking-check
+(`docker exec openclaw-openclaw-gateway-1 openclaw cron enable <id>`).
 
 ## Update history
-- 2026-06-02 — created by coordinator session after the codex-outage marathon; ClawBridge
-  host-tool access found missing post-update. Stopgaps applied (crons disabled, fallback fixed).
+- 2026-06-02 — created after the codex-outage marathon.
+- 2026-06-03 — rewritten to a launch pointer; #8 premise found wrong, superseded by #10.
