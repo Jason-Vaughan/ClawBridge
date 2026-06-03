@@ -4,6 +4,8 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-06-03
+
 ### Added
 - **Cookbook recipe `examples/tools-extension-client.js`** (closes [#9](https://github.com/Jason-Vaughan/ClawBridge/issues/9)). Self-contained Node stdlib reference for the client side of the `/tools/*` contract — how a container agent, orchestrator, or any HTTP caller talks to whatever extension the bridge has mounted via `CLAWBRIDGE_TOOLS_MODULE`. Pairs with `docs/tools-extension.md` (which covers the author side). Demonstrates discovery via unauthenticated `GET /health`, bearer-token requests, retry/backoff for transient failures, and status-code-to-actionable-error translation (401/404/5xx). Surfaced by the ClawBridge#8 investigation, where the missing client-side documentation contributed to a misdiagnosis. `examples/README.md` updated with a matching recipe section.
 
