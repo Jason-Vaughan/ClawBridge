@@ -4,6 +4,8 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-06-20
+
 ### Added
 - **`GET /v2/session/file` endpoint** (closes [#18](https://github.com/Jason-Vaughan/ClawBridge/issues/18)). Reads a project-relative file the AI wrote inside its working directory and returns the raw UTF-8 bytes verbatim — markdown intact, newlines preserved. Required because `/v2/session/output` is the rendered TUI paint stream: a 2026-06-20 spike against a live bridge confirmed it strips `##` headings, collapses newlines via cursor positioning, and mangles doubled delimiters like `<<TC:x>>`. Reconstructing structured AI judgment from that stream would need a full headless VT emulator; reading the AI's own file is robust and trivial. Query params: `project` (required), `path` (required, project-relative), `consume` (optional, default `false` — when `true`, unlinks the file after a successful read for one-shot wrap-capture semantics; a failed unlink returns `200` with `consumed:false` so bytes are never lost). Response: `{ ok, project, path, bytes, content, consumed }`. No active session required — resolved against `<projectsDir>/<project>`. Unblocks TangleClaw CC-7 "degraded wrap" capture-back for webui/gateway sessions.
 
