@@ -214,6 +214,16 @@ class SessionManager {
   }
 
   /**
+   * Base directory where projects live. Exposed so route handlers can map
+   * `project` → on-disk path without reaching past this class (e.g. for
+   * `GET /v2/session/file` reading a project-relative artifact).
+   * @returns {string}
+   */
+  get projectsDir() {
+    return this._projectsDir;
+  }
+
+  /**
    * Load session history from disk.
    * @private
    */

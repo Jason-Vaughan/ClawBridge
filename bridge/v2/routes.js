@@ -1,7 +1,9 @@
 'use strict';
 
+const fs = require('node:fs');
 const { SessionManager } = require('./sessions');
 const { stripAnsi } = require('./permission-parser');
+const { validateProjectPath } = require('./path-safety');
 
 /**
  * Handle v2 API routes. Returns true if the route was handled, false otherwise.
@@ -453,6 +455,91 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
     return true;
   }
 
+  // GET /v2/session/file — read a project-relative file the AI wrote.
+  //
+  // Motivated by ClawBridge#18: capturing structured AI judgment (a wrap
+  // summary) over the bridge can't go through /v2/session/output, because
+  // that's the rendered TUI paint stream — markdown is stripped, newlines
+  // collapsed by cursor positioning. The AI writes raw markdown to disk
+  // inside its project; this endpoint reads those bytes back unmodified.
+  //
+  // No active session is required — the path is resolved against the
+  // project's working directory (`<projectsDir>/<project>`), so a controller
+  // can read a file after the session has ended too.
+  if (method === 'GET' && pathname === '/v2/session/file') {
+    const project = url.searchParams.get('project');
+    const relPath = url.searchParams.get('path');
+    const consume = url.searchParams.get('consume') === 'true';
+
+    if (!project) {
+      json(res, 400, { error: 'project is required' });
+      return true;
+    }
+    if (!relPath) {
+      json(res, 400, { error: 'path is required' });
+      return true;
+    }
+
+    const validation = validateProjectPath(sessionManager.projectsDir, project, relPath);
+    if (!validation.valid) {
+      json(res, 400, { error: validation.error });
+      return true;
+    }
+
+    if (!fs.existsSync(validation.projectDir)) {
+      json(res, 404, { error: `Project not found: ${project}` });
+      return true;
+    }
+
+    let stat;
+    try {
+      stat = fs.statSync(validation.resolvedPath);
+    } catch {
+      json(res, 404, { error: 'File not found' });
+      return true;
+    }
+    if (!stat.isFile()) {
+      json(res, 400, { error: 'Not a file' });
+      return true;
+    }
+
+    let content;
+    try {
+      content = fs.readFileSync(validation.resolvedPath, 'utf8');
+    } catch (err) {
+      json(res, 500, { error: `Failed to read file: ${err.message}` });
+      return true;
+    }
+
+    // Consume = unlink-after-read for one-shot wrap-capture semantics. A
+    // failed unlink is logged but does NOT fail the request — the bytes are
+    // already in hand and the caller would lose them if we 500'd. A leftover
+    // file is harmless; a lost capture is not.
+    let consumed = false;
+    if (consume) {
+      try {
+        fs.unlinkSync(validation.resolvedPath);
+        consumed = true;
+      } catch (err) {
+        if (!process.env.VITEST) {
+          console.warn(
+            `[v2/file] consume=true but unlink failed for ${validation.resolvedPath}: ${err.message}. Returning content with consumed:false.`
+          );
+        }
+      }
+    }
+
+    json(res, 200, {
+      ok: true,
+      project,
+      path: relPath,
+      bytes: stat.size,
+      content,
+      consumed,
+    });
+    return true;
+  }
+
   // GET /v2/api-docs — self-describing API reference for all v2 endpoints
   if (method === 'GET' && pathname === '/v2/api-docs') {
     json(res, 200, getApiDocs());
@@ -657,6 +744,17 @@ function getApiDocs() {
           all: { type: 'string', required: false, description: 'Set to "true" to include ended/completed/failed/timed_out sessions' },
         },
         returns: 'sessions[] (each with sessionId, project, state, cursor, etc.)',
+      },
+      {
+        method: 'GET',
+        path: '/v2/session/file',
+        description: 'Read a project-relative file the AI wrote inside its working directory, returning raw UTF-8 bytes verbatim. Designed for structured capture-back (e.g. wrap summaries written as raw markdown) — sidesteps the /v2/session/output paint stream\'s markdown stripping and newline collapse. No active session required; the file is resolved against `<projectsDir>/<project>`. Closes ClawBridge#18.',
+        query: {
+          project: { type: 'string', required: true, description: 'Project name (same key used by the rest of v2).' },
+          path: { type: 'string', required: true, description: 'Project-relative path. Rejected if absolute, traversing (`..`), or escaping the project root via a symlink.' },
+          consume: { type: 'string', required: false, description: 'When "true", unlink the file after a successful read (consume-once wrap-capture semantics). A failed unlink returns 200 with `consumed:false` — bytes are never lost.' },
+        },
+        returns: 'ok, project, path, bytes (file size in bytes), content (raw UTF-8 string), consumed (true iff consume=true AND unlink succeeded).',
       },
       {
         method: 'GET',

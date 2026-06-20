@@ -4,6 +4,12 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **`GET /v2/session/file` endpoint** (closes [#18](https://github.com/Jason-Vaughan/ClawBridge/issues/18)). Reads a project-relative file the AI wrote inside its working directory and returns the raw UTF-8 bytes verbatim — markdown intact, newlines preserved. Required because `/v2/session/output` is the rendered TUI paint stream: a 2026-06-20 spike against a live bridge confirmed it strips `##` headings, collapses newlines via cursor positioning, and mangles doubled delimiters like `<<TC:x>>`. Reconstructing structured AI judgment from that stream would need a full headless VT emulator; reading the AI's own file is robust and trivial. Query params: `project` (required), `path` (required, project-relative), `consume` (optional, default `false` — when `true`, unlinks the file after a successful read for one-shot wrap-capture semantics; a failed unlink returns `200` with `consumed:false` so bytes are never lost). Response: `{ ok, project, path, bytes, content, consumed }`. No active session required — resolved against `<projectsDir>/<project>`. Unblocks TangleClaw CC-7 "degraded wrap" capture-back for webui/gateway sessions.
+
+### Changed
+- **Path-safety primitive extracted to `bridge/v2/path-safety.js`** (`validateProjectPath(projectsDir, project, subPath)`). Shared between `server.js`'s `/projects/:project/files/*` surface and the new `/v2/session/file` so the traversal/realpath/NUL rules can't drift between v1 and v2 — security code wants one implementation. Behavior unchanged; the v1 `validateProjectPath` is now a thin shim that binds `PROJECTS_DIR`.
+
 ## [1.8.0] — 2026-06-20
 
 ### Added

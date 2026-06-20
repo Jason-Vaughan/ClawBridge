@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const { SessionManager } = require('./v2/sessions');
 const { ptyAvailable, checkSpawnable } = require('./v2/pty');
 const { handleV2Route } = require('./v2/routes');
+const { validateProjectPath: _validateProjectPath } = require('./v2/path-safety');
 
 // ── Load .env ──
 
@@ -415,47 +416,15 @@ function getContentType(filename) {
 const DEFAULT_EXCLUDE_DIRS = new Set(['node_modules', '.git', '.claude']);
 
 /**
- * Validate a project name and optional subpath for path traversal attacks.
- * @param {string} project - Project name from URL
- * @param {string} [subPath] - Optional file/directory subpath
+ * Server-local wrapper that binds the shared `validateProjectPath` to this
+ * process's `PROJECTS_DIR`. Kept as a thin shim so the call sites below stay
+ * unchanged.
+ * @param {string} project
+ * @param {string} [subPath]
  * @returns {{valid: boolean, projectDir: string, resolvedPath: string, error?: string}}
  */
 function validateProjectPath(project, subPath) {
-  // Reject dangerous characters in project name
-  if (!project || project.includes('..') || project.includes('\0') || project.includes('/')) {
-    return { valid: false, projectDir: '', resolvedPath: '', error: 'Invalid project name' };
-  }
-
-  const projectDir = path.join(PROJECTS_DIR, project);
-
-  if (!subPath) {
-    return { valid: true, projectDir, resolvedPath: projectDir };
-  }
-
-  // Reject traversal in subpath
-  if (subPath.includes('\0') || path.isAbsolute(subPath)) {
-    return { valid: false, projectDir, resolvedPath: '', error: 'Invalid path' };
-  }
-
-  // Normalize and check for traversal
-  const resolvedPath = path.resolve(projectDir, subPath);
-  const resolvedProjectDir = path.resolve(projectDir);
-  if (!resolvedPath.startsWith(resolvedProjectDir + path.sep) && resolvedPath !== resolvedProjectDir) {
-    return { valid: false, projectDir, resolvedPath, error: 'Path escapes project directory' };
-  }
-
-  // Symlink escape check (resolve both sides to handle /tmp → /private/tmp etc.)
-  try {
-    const real = fs.realpathSync(resolvedPath);
-    const realProjectsDir = fs.realpathSync(PROJECTS_DIR);
-    if (!real.startsWith(realProjectsDir + path.sep) && !real.startsWith(realProjectsDir)) {
-      return { valid: false, projectDir, resolvedPath, error: 'Symlink escapes allowed directory' };
-    }
-  } catch {
-    // File doesn't exist — that's OK for validation, caller handles 404
-  }
-
-  return { valid: true, projectDir, resolvedPath };
+  return _validateProjectPath(PROJECTS_DIR, project, subPath);
 }
 
 /**
