@@ -7,7 +7,7 @@ const fs = require('node:fs');
 
 // ── v2 PTY broker ──
 const { SessionManager } = require('./v2/sessions');
-const { ptyAvailable } = require('./v2/pty');
+const { ptyAvailable, checkSpawnable } = require('./v2/pty');
 const { handleV2Route } = require('./v2/routes');
 
 // ── Load .env ──
@@ -713,6 +713,11 @@ const server = http.createServer(async (req, res) => {
         ? (await runCommand(CLAUDE_BIN, ['--version'], { timeout: 5000 })).stdout.trim()
         : 'not found';
 
+      // ptySpawnable is re-checked per request so it reflects the current
+      // on-disk state of `spawn-helper`. ptyAvailable (require-load) can be
+      // true while ptySpawnable is false — see issue #16, where node-pty's
+      // shipped spawn-helper had no exec bit and every session died with
+      // `posix_spawnp failed` even though the native binding loaded fine.
       const payload = {
         ok: true,
         claude: claudeVersion,
@@ -720,6 +725,8 @@ const server = http.createServer(async (req, res) => {
         projectsDir: PROJECTS_DIR,
         activeSessions: v2SessionManager.activeCount,
         ptyMode: ptyAvailable ? 'pty' : 'pipes-fallback',
+        ptyAvailable,
+        ptySpawnable: checkSpawnable(),
       };
 
       if (toolsExtension) {
