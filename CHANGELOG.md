@@ -4,13 +4,15 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-- **Boot-time self-heal for node-pty's `spawn-helper` exec bit** (closes [#16](https://github.com/Jason-Vaughan/ClawBridge/issues/16)). New `bridge/v2/spawn-helper.js` resolves the installed node-pty package and, for the running `${platform}-${arch}`, ensures `prebuilds/<plat-arch>/spawn-helper` (and any locally rebuilt `build/Release/spawn-helper`) has at least one exec bit set. Runs once at `bridge/v2/pty.js` load — before any `SessionManager` is constructed — so the first `/v2/session/start` cannot silently fail with `posix_spawnp failed`. Idempotent: already-executable helpers are left untouched; non-executable helpers are `chmod`ed with a single warning; a missing helper logs an error and reports not-spawnable without throwing. Durable across reinstalls in a way that `scripts/postinstall.js` alone is not — postinstall runs once at install time and won't catch later perm resets (filesystem sync, restore from a `cp` without `-p`).
+## [1.8.0] — 2026-06-20
 
 ### Added
 - **`ptySpawnable` field on `GET /health`** (paired with the [#16](https://github.com/Jason-Vaughan/ClawBridge/issues/16) fix). `true` iff node-pty's `spawn-helper` exists for the running arch **and** has an exec bit. Re-checked per request so it reflects current on-disk state, not boot-time state. Crucially distinct from `ptyAvailable`: the native binding `dlopen`s without the helper needing `+x`, so the existing `ptyAvailable: true` masked the failure mode in #16. `ptyAvailable` is now also explicitly surfaced (previously only readable via `ptyMode`).
 
+### Fixed
+- **Boot-time self-heal for node-pty's `spawn-helper` exec bit** (closes [#16](https://github.com/Jason-Vaughan/ClawBridge/issues/16)). New `bridge/v2/spawn-helper.js` resolves the installed node-pty package and, for the running `${platform}-${arch}`, ensures `prebuilds/<plat-arch>/spawn-helper` (and any locally rebuilt `build/Release/spawn-helper`) has at least one exec bit set. Runs once at `bridge/v2/pty.js` load — before any `SessionManager` is constructed — so the first `/v2/session/start` cannot silently fail with `posix_spawnp failed`. Idempotent: already-executable helpers are left untouched; non-executable helpers are `chmod`ed with a single warning; a missing helper logs an error and reports not-spawnable without throwing. Durable across reinstalls in a way that `scripts/postinstall.js` alone is not — postinstall runs once at install time and won't catch later perm resets (filesystem sync, restore from a `cp` without `-p`).
 
+## [1.7.1] — 2026-06-03
 
 ### Added
 - **Cookbook recipe `examples/tools-extension-client.js`** (closes [#9](https://github.com/Jason-Vaughan/ClawBridge/issues/9)). Self-contained Node stdlib reference for the client side of the `/tools/*` contract — how a container agent, orchestrator, or any HTTP caller talks to whatever extension the bridge has mounted via `CLAWBRIDGE_TOOLS_MODULE`. Pairs with `docs/tools-extension.md` (which covers the author side). Demonstrates discovery via unauthenticated `GET /health`, bearer-token requests, retry/backoff for transient failures, and status-code-to-actionable-error translation (401/404/5xx). Surfaced by the ClawBridge#8 investigation, where the missing client-side documentation contributed to a misdiagnosis. `examples/README.md` updated with a matching recipe section.
