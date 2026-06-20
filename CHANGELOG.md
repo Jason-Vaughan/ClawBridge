@@ -4,6 +4,11 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-06-20
+
+### Fixed
+- **`/health` was missing a way to verify which bridge build is running**, blocking the standard `npm update`-then-restart deploy verification flow on hosts pinned by semver range. Adds a `bridge` field to the `/health` payload that reports this package's own `package.json` version (resolved once at boot, falls back to `"unknown"` on a malformed install rather than throwing). `claude` continues to report the Claude binary's version, not the bridge's.
+
 ## [1.9.0] — 2026-06-20
 
 ### Added

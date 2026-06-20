@@ -11,6 +11,18 @@ const { ptyAvailable, checkSpawnable } = require('./v2/pty');
 const { handleV2Route } = require('./v2/routes');
 const { validateProjectPath: _validateProjectPath } = require('./v2/path-safety');
 
+// Own package version, surfaced on /health so deployments can verify which
+// bridge build is actually serving traffic. Resolved at boot, not per
+// request — package.json doesn't change after the process starts. Falls
+// back to 'unknown' rather than throwing, so a malformed install can still
+// answer /health.
+let BRIDGE_VERSION;
+try {
+  BRIDGE_VERSION = require('../package.json').version;
+} catch {
+  BRIDGE_VERSION = 'unknown';
+}
+
 // ── Load .env ──
 
 const envFile = path.join(__dirname, '.env');
@@ -687,8 +699,13 @@ const server = http.createServer(async (req, res) => {
       // true while ptySpawnable is false — see issue #16, where node-pty's
       // shipped spawn-helper had no exec bit and every session died with
       // `posix_spawnp failed` even though the native binding loaded fine.
+      //
+      // `bridge` reports this package's own semver so operators can verify
+      // which bridge build is actually serving traffic after `npm update`
+      // — `claude` is the Claude binary's version, not the bridge's.
       const payload = {
         ok: true,
+        bridge: BRIDGE_VERSION,
         claude: claudeVersion,
         prawduct: prawductExists ? 'available' : 'not found',
         projectsDir: PROJECTS_DIR,

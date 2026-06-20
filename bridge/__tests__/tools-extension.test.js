@@ -227,6 +227,11 @@ describe('CLAWBRIDGE_TOOLS_MODULE extension point', () => {
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
       expect(res.body.tools).toEqual({ ok: true, mock: true, initialized: true });
+      // /health must surface the bridge's own version so operators can verify
+      // which build is live after `npm update` — `claude` is the Claude
+      // binary's version, not the bridge's.
+      const expectedVersion = require('../../package.json').version;
+      expect(res.body.bridge).toBe(expectedVersion);
     });
 
     it('enforces bridge-level auth before handoff', async () => {
