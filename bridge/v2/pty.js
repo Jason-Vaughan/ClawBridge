@@ -2,6 +2,20 @@
 
 const { EventEmitter } = require('node:events');
 const { spawn } = require('node:child_process');
+const { ensureSpawnHelperExecutable, checkSpawnable } = require('./spawn-helper');
+
+// Restore the exec bit on node-pty's spawn-helper before any session attempts
+// to spawn. node-pty's `require()` only dlopens the native binding (no exec bit
+// needed), but the first `pty.spawn()` posix_spawns `spawn-helper` — if the
+// helper lost its +x bit (npm tarball extraction, `cp` without -p, filesystem
+// sync), every session fails with a silent `posix_spawnp failed`. Boot-time
+// heal is durable across reinstalls in a way that `scripts/postinstall.js`
+// alone is not (postinstall runs once at install time and won't catch later
+// perm resets). Suppressed under vitest to avoid log noise — the unit tests
+// drive `ensureSpawnHelperExecutable` directly against fixtures.
+if (!process.env.VITEST) {
+  ensureSpawnHelperExecutable();
+}
 
 /**
  * Try to load node-pty. Falls back to null if unavailable (e.g. sandbox, or
@@ -27,6 +41,11 @@ const nodePty = loadNodePty();
 /**
  * Whether node-pty loaded successfully. Exposed so callers (e.g. /health) can
  * surface the degraded "pipes-fallback" mode to operators.
+ *
+ * NOTE: `ptyAvailable: true` does NOT imply sessions will spawn — the native
+ * binding can dlopen while `spawn-helper` is missing exec bits, which is
+ * exactly the failure mode that motivated this module. Pair with
+ * `checkSpawnable()` (or read `/health.ptySpawnable`) for the full picture.
  * @type {boolean}
  */
 const ptyAvailable = nodePty !== null;
@@ -270,4 +289,4 @@ class PtyProcess extends EventEmitter {
   }
 }
 
-module.exports = { PtyProcess, ptyAvailable };
+module.exports = { PtyProcess, ptyAvailable, checkSpawnable };
