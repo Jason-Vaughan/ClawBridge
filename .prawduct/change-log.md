@@ -48,6 +48,38 @@
      derived view. Don't hand-edit them — add/update a tagged entry here and
      run `prawduct-hook regen-views`. -->
 
+## 2026-08-03: Close the documented install path around the auth guard
+
+<!-- prawduct: chunks=01 | status=shipped -->
+
+**Why:** the `SEC-UTP4` guard checks that `BRIDGE_TOKEN` is *present*. `.env.example`
+shipped `BRIDGE_TOKEN=changeme`, and README Quickstart step 2 says to copy that file — so
+the documented install produced a running bridge on a guessable credential, `0.0.0.0` bind,
+wildcard CORS, and no complaint from the guard. Shipping the weak value ourselves defeated
+the control we had just added.
+
+**What:** `.env.example` ships the value empty, so copying it leads *into* the refusal;
+both it and the FATAL block name `openssl rand -base64 32`; the README separates the
+invented secret from the issued one, which is the setup confusion behind the operator's
+question that surfaced this.
+
+**Two shipped samples, not one.** `main`'s README already shipped
+`BRIDGE_TOKEN=replace-me` in its own paste-able env block — the same released defect in the
+second documented install path. The first fix attempt replaced that literal with an
+*inline* comment, which the loader (it skips only lines that *start* with `#`) takes as the
+value: non-empty, guard silent, bridge running on a string published in this repo. So that
+round changed the mechanism without closing the hole — it did not reopen a closed one.
+Verified against a running bridge before fixing.
+
+**Coverage:** 6 cases over every documented sample — `.env.example` plus each `env`-fenced
+block in the README — asserting each yields no usable token and that a bridge configured
+from it refuses to start, plus a meta-assertion that the scan found at least two samples so
+a changed fence syntax cannot leave it checking nothing. The first version of this test
+pinned `.env.example` alone, which is exactly why it missed the README.
+
+**Not done:** runtime token-strength validation. Real feature, real false-positive risk, and
+not what made this a defect — the defect was shipping the weak value.
+
 ## 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
 
 <!-- prawduct: chunks=01,02 | status=shipped -->

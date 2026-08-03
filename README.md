@@ -147,9 +147,29 @@ Edit `bridge/.env` and set at minimum:
 
 ```env
 BRIDGE_PORT=3201
-BRIDGE_TOKEN=replace-me
-CLAUDE_CODE_OAUTH_TOKEN=replace-me
+
+# A secret you invent — see below. Note that comments must be on their own line:
+# the loader takes everything after `=` verbatim, so a trailing comment would
+# become part of the token.
+BRIDGE_TOKEN=
+
+# Issued by `claude setup-token`.
+CLAUDE_CODE_OAUTH_TOKEN=
+
+# Directory containing the projects the bridge may operate on.
+PROJECTS_DIR=/path/to/your/projects
 ```
+
+**These two tokens come from different places, which is the most common setup confusion:**
+
+- **`BRIDGE_TOKEN` is a secret you invent.** Nothing issues it. Callers present it as
+  `Authorization: Bearer <token>`. Generate one with `openssl rand -base64 32`.
+  The bridge **refuses to start** without it — deliberately, since running without a token
+  serves every route unauthenticated on a `0.0.0.0` bind. `.env.example` ships it empty for
+  the same reason: a placeholder would satisfy that check and leave you running on a
+  guessable credential.
+- **`CLAUDE_CODE_OAUTH_TOKEN` is issued to you** by `claude setup-token` (see
+  [Claude Code Headless Auth](#claude-code-headless-auth) below).
 
 ### 3. Start the bridge
 
@@ -190,7 +210,7 @@ curl -H "Authorization: Bearer $BRIDGE_TOKEN" \
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `BRIDGE_PORT` | Yes | Port to listen on (default: 3201) |
-| `BRIDGE_TOKEN` | Yes | Bearer token for API authentication. **The bridge refuses to start without it** — see below. |
+| `BRIDGE_TOKEN` | Yes | Bearer token for API authentication — **a secret you invent**, not one that is issued. `openssl rand -base64 32`. **The bridge refuses to start without it.** |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Yes | Token from `claude setup-token` for headless auth |
 | `CLAUDE_BIN` | No | Path to Claude Code binary (default: `/usr/local/bin/claude`) |
 | `PYTHON_BIN` | No | Path to Python 3 binary (auto-detected) |

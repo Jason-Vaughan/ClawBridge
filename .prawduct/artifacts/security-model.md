@@ -70,7 +70,26 @@ it by accident — starts it anyway, but `/health` then reports `insecure: true`
 `auth.required: false`, and every boot logs a warning. `checkAuth` returns the opt-in flag
 rather than a bare `true`, so an unset token cannot widen authority on its own even if the
 startup guard were ever bypassed. Token comparison is now `crypto.timingSafeEqual` behind a
-length guard (closes G3). Regression coverage: `bridge/__tests__/auth.test.js`, 22 tests (16 `it(` plus a six-case `it.each`).
+length guard (closes G3). **The guard shipped defeated by our own documentation, on both documented paths.** It
+checks that a token is *present*. `bridge/.env.example` shipped `BRIDGE_TOKEN=changeme`, and
+the README's paste-able env block shipped `BRIDGE_TOKEN=replace-me` — both released, both
+present, so either install produced a running bridge on a credential published verbatim in
+this repo while the guard raised nothing.
+
+The first fix attempt closed only the example file and replaced the README's literal with an
+*inline* comment (`BRIDGE_TOKEN=   # a secret you invent`). The loader skips only lines that
+**start** with `#`, so the comment became the value — verified: a bridge started and reported
+"Auth: Bearer token required" on that string. That round changed the mechanism without
+closing the hole; it did not reopen something already closed.
+
+The lesson is not "check the example file". A presence check is only as strong as **every**
+sample a reader can copy, so regression coverage enumerates them — `.env.example` plus every
+`env`-fenced block in the root `README.md` — and asserts each yields no usable token and
+refuses to start. A new sample added to either of those two sources is covered before it is
+written; a sample introduced somewhere else (a new doc, `docs/`) is not, and widening the
+scan is the fix if that happens.
+
+Regression coverage: `bridge/__tests__/auth.test.js`.
 
 The description below is retained as the record of what was wrong and why it mattered.
 
