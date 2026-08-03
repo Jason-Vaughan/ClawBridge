@@ -146,6 +146,21 @@ This is ~30 non-blank lines. If your extension is a plain Express or raw-http ha
   > in-extension auth, or refuse to serve when the bridge reports it. `GET /health` is
   > unauthenticated by design and returns `auth.required: false` and `insecure: true`
   > in that mode, so an extension can detect it from `init()` and decline to mount.
+
+- **A second filter runs ahead of your handler in tokenless mode (2.0.0).** When
+  `BRIDGE_TOKEN` is empty, the bridge applies a cross-origin gate *before routing*, so it
+  fronts `/tools/*` as well: a request carrying an `Origin` outside the allowed set — or, with
+  no `Origin`, a `Sec-Fetch-Site` that is neither `same-origin` nor `none` — is answered `403`
+  and **never reaches `handleToolsRoute`**. Nothing changes when a token is set, and nothing
+  changes for callers that send neither header, which is every non-browser client.
+
+  This narrows what reaches your extension rather than widening it, so it cannot make a
+  previously-safe extension unsafe. It is called out because the contract above promises that
+  bridge-level auth is the *only* thing ordered before your handler, and as of 2.0.0 that is no
+  longer the complete list — an extension that expected to see every request arriving at
+  `/tools/*` will see fewer of them in tokenless mode. `/health` reports the live posture under
+  `cors`, so an extension can detect the gate from `init()` the same way it detects `insecure`.
+
 - **Hot reload.** Changing `CLAWBRIDGE_TOOLS_MODULE` requires a bridge restart.
 
 ## Migration

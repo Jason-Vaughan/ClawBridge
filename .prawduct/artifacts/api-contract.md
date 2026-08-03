@@ -103,6 +103,15 @@ so a consumer discovers the change from the API itself rather than only from thi
 be read as evidence the norm needs amending rather than departing from again — and amending it
 is a decision to record deliberately, not something to arrive at by accumulating exceptions.
 
+**Owner ruling, 2026-08-03.** All three departures were put to the owner together with the
+alternative of amending the norm now to carve out security fixes, and the alternative of
+pulling one back to `/v3`. The ruling is: **ratify the three as departures, leave the norm
+unamended, and treat a fourth as the trigger to amend.** The carve-out was declined for the
+reason that makes it tempting — it would remove the friction that forced each of these three to
+be argued, and "is this a security fix?" is a judgment an author makes about their own change.
+So the count stays the pressure gauge, and it is now a ratified position rather than three
+unanswered `user can veto` notes.
+
 ## Canonical sources — do not duplicate them here
 
 | Surface | Canonical spec |

@@ -107,7 +107,9 @@ Two further properties are worth stating outright, because both are deliberate:
 - **One privilege tier.** There is a single shared `BRIDGE_TOKEN` and no per-caller authorization. Any token holder can act on any project.
 - **Transcripts are unfiltered.** The event log and `/v2/session/transcript` store raw PTY output verbatim, so anything Claude Code prints — the contents of a `.env`, an echoed key, a token in a stack trace — is held in memory and returned in full to any token holder. There is no redaction, by decision rather than by omission: this is a single-operator host daemon, and anyone who can read a transcript already has access to the host those secrets live on. Adding redaction would buy little and would make the transcript a less faithful record of what actually happened.
 
-**CORS depends on whether a token is set.** With `BRIDGE_TOKEN` set, `Access-Control-Allow-Origin` is `*`. That is a nuisance rather than a hole — a web page has no credential to send, and cannot attach `Authorization` without tripping a preflight.
+**CORS depends on whether a token is set.** With `BRIDGE_TOKEN` set, `Access-Control-Allow-Origin` is `*`. For every *authenticated* route that is a nuisance rather than a hole — a web page has no credential to send, and cannot attach `Authorization` without tripping a preflight.
+
+**But three routes are unauthenticated by design** — `GET /health`, `GET /exports`, and `GET /exports/*` — so "no credential" does not protect them. With the wildcard, a page the operator visits can read the export listing and the contents of every file under `EXPORTS_DIR` cross-origin, in the default token-holding configuration. Point `EXPORTS_DIR` at a directory you are content to publish (the environment table says the same), and treat the wildcard as the reason that instruction is not advisory. Tracked as `CRS-8N3P`.
 
 **Without a token, cross-origin browser requests are refused before routing.** Loopback origins are allowed, as is anything named exactly in `CLAWBRIDGE_ALLOWED_ORIGINS`; everything else gets a `403`. This is what makes `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` safe to state as "nothing else can reach the port" — previously it also required that no browser run on the host, which was not a condition an operator could actually satisfy.
 
@@ -432,7 +434,7 @@ ClawBridge/
       event-log.js         # Append-only event log with cursor reads and long-poll
       sessions.js          # Session + SessionManager: lifecycle, timers, permissions
       routes.js            # HTTP route handlers (includes api-docs, peek, test detection)
-      __tests__/           # 18 test files, 512 tests (14 e2e skipped by default)
+      __tests__/           # broker suites (the 14-test live-PTY e2e file is skipped unless RUN_E2E=1)
   docs/
     bridge-v2-maintainer-guide.md
     bridge-v2-pty-broker-spec.md

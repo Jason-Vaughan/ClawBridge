@@ -21,7 +21,7 @@ bridge/
     event-log.js         ← Append-only event log with cursor-based reads and long-poll
     sessions.js          ← Session + SessionManager: lifecycle, timers, permission flow
     routes.js            ← v2 HTTP route handlers
-    __tests__/           ← 18 test files, 512 tests
+    __tests__/           ← broker test suites
 ```
 
 ### Module responsibilities
@@ -303,7 +303,7 @@ All logic that reasons about session liveness must use `session.isTerminal` (whi
 
 ## Test structure
 
-512 tests across 18 files in `bridge/v2/__tests__/`:
+The broker suites in `bridge/v2/__tests__/`:
 
 | File | What it covers |
 |------|---------------|

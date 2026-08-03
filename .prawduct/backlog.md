@@ -220,94 +220,6 @@
   binary. Optionally add eslint with a minimal ruleset to move the mechanical
   norms off Critic.
 
-- **[SEC-K4RD]** A destructive operation should not be reachable by GET — `GET /v2/session/file?consume=true` unlinks the file it returns
-  `effort: M · impact: M · area: security · source: critic · added: 2026-08-03 · status: open · stage: ready · reviewed: 2026-08-03 · related: CRS-4T8K · refs: .prawduct/artifacts/security-model.md § Known gaps G7, .prawduct/artifacts/security-model.md § Known gaps G5, .prawduct/artifacts/api-contract.md § Direction`
-
-  Surfaced 2026-08-03 while building the origin gate for `CRS-4T8K`.
-  `bridge/v2/routes.js` routes this on `method === 'GET'` (line ~469) and, when
-  `consume=true`, `unlink`s the file after reading it (~line 519).
-
-  **Why this route was the sharpest edge of the CORS/CSRF hole:** a `no-cors` GET
-  — `<img src>`, `<script src>`, `<iframe>`, a top-level navigation — needs no
-  preflight, no script, and carries **no `Origin` header**. Nothing about the
-  request shape signals "state change", so nothing along the browser path was
-  positioned to stop it.
-
-  **The origin gate does not fully close this.** It blocks the browser path via
-  `Sec-Fetch-Site`, but a header check is strictly weaker than not accepting the
-  request shape at all: any client that omits **both** `Origin` and
-  `Sec-Fetch-Site` reaches the route. That residual is small in practice (a
-  non-browser caller in unauthenticated mode already has every route), but the
-  defense is a header the server does not control, not the method semantics it
-  does.
-
-  **Fix shape (as first proposed — superseded 2026-08-03 by the decision below;
-  kept verbatim because the reasoning it got wrong is the useful part):** require
-  `POST` (or `DELETE`) for consume-on-read. That is a
-  **breaking change to the `/v2` surface** — narrowing what an existing path
-  accepts — and is therefore governed by the api-contract **Direction** norm,
-  which requires a new path-major (`/v3`) for removing or narrowing, never a
-  minor or patch. So the requirement is not just "change the method": it is a
-  `/v3` question, or an additive `POST` alias plus a deprecation window on the
-  GET form. That is why this is `stage: requirements`, not `ready`.
-
-  **Deliberately NOT folded into 2.0.0.** It is a separate requirement that
-  surfaced mid-build; inventing it into the origin-gate chunk would have been
-  exactly the silent-requirement failure the methodology names. Recorded here so
-  the decision is visible rather than lost — note that the 2.0.0 major bump was
-  the cheapest carrier for a breaking `/v2` change, so deferring it has a real
-  cost the owner should weigh (see `REL-BRS7`).
-
-  ---
-
-  **DECISION — 2026-08-03 (discovery). `stage: requirements` → `stage: ready`;
-  the requirement is written and the fix is operator-chosen from four framed
-  options.**
-
-  **The strongest argument is not CSRF, and framing it that way is what kept this
-  item at `requirements`.** RFC 9110 §9.2.1 defines `GET` as a *safe* method — no
-  side effects for which the client is responsible — and real infrastructure is
-  built on that guarantee. Link unfurlers (Slack, Discord), browser prefetch and
-  speculative loads, corporate proxies, security scanners and crawlers all issue
-  bare `GET`s. **None of them sends `Origin` or `Sec-Fetch-Site`, and none of them
-  is a browser driven by a hostile page.** So the `CRS-4T8K` origin gate is blind
-  to every one of them *by construction*, not by oversight: it keys on headers
-  only a browser sets. Anything that ever saw such a URL — in a log, a chat
-  message, a bookmark, a bug report — could delete the file by merely looking at
-  it. That is a far larger population than "a page the operator visited", and it
-  is why the header gate was never going to be the answer here.
-
-  **This also explains the gate's residual** (recorded above as "small in
-  practice"). `GET` is precisely the method browsers do *not* tag with `Origin` —
-  Fetch appends `Origin` when the method is **not** `GET`/`HEAD`. So moving a
-  destructive operation onto any other method converts it into one the gate can
-  *always* see. The residual is not a separate weakness to patch; it is the same
-  fact as this item, seen from the other side.
-
-  **Decided fix.** `GET /v2/session/file` becomes a **pure read**. The consuming
-  form moves to **`POST`**, where every browser-issued request carries `Origin`
-  (so the `CRS-4T8K` gate applies) and where no prefetcher, unfurler or crawler
-  will go.
-
-  **`consume=true` on a `GET` must be REFUSED, not silently ignored.** Returning
-  the bytes without deleting the file would leave the caller believing it had
-  consumed a file that still exists — a correctness bug handed to whoever
-  migrates, which is worse than an error they can see. Refuse loudly.
-
-  **Known consumer: TangleClaw.** It uses `consume` for degraded-wrap
-  capture-back — the feature `consume` shipped for in 1.9.0. The migration is one
-  line, but this is a real first-party consumer, not a hypothetical one, so the
-  change needs to be announced rather than merely released.
-
-  **Norm position.** This is a breaking `/v2` change and is recorded as a
-  departure from the api-contract compatibility (**Direction**) norm — the
-  **second narrowing of the `/v2` surface**, exactly as `api-contract.md`
-  anticipated ("Changing that method is a second narrowing"). Counting all
-  departures from that norm it is the **third** (`BRIDGE_TOKEN` 2026-08-02,
-  `CRS-4T8K` 2026-08-03); counting narrowings of `/v2` it is the second. Note
-  this supersedes the `/v3`-or-deprecation-window framing above: the decision is
-  to take the departure in the 2.0.0 major, not to open a path-major.
-
 - **[UPS-7Z4M]** prawduct-upstream: `audit-learnings` `run_sentinel` hardcodes pytest, so learnings sentinels are inert in this Node/vitest repo
   `effort: S · impact: S · area: prawduct-upstream · source: critic · added: 2026-08-03 · status: open · stage: ready`
 
@@ -350,6 +262,37 @@
   trade one problem for another. Decide whether this repo adopts the split at all
   before doing it — that decision is the work, which is why this is
   `stage: design`.
+
+- **[CRS-8N3P]** Wildcard CORS exposes the three unauthenticated routes even when `BRIDGE_TOKEN` is set
+  `effort: S · impact: M · area: security · source: critic · added: 2026-08-03 · status: open · stage: design · related: CRS-4T8K · refs: .prawduct/artifacts/security-model.md § Boundary 1a, README.md § Security Posture`
+
+  The `CRS-4T8K` origin gate is **scoped to tokenless mode only**. With a token
+  set, `Access-Control-Allow-Origin` stays `*` (`bridge/server.js:770-771` — the
+  gate at `:760` is `if (!TOKEN)`, the wildcard at `:770` is `if (TOKEN)`).
+
+  **Why "no credential to send" does not save it.** Security-model boundary 1a
+  lists `GET /health`, `GET /exports` and `GET /exports/*` as unauthenticated *by
+  design*, and the `/exports` handlers (`bridge/server.js:823` and `:872`) run
+  **before** the auth check at `:896`. Those routes need no credential at all, so
+  the reason wildcard was judged safe in token mode — a cross-origin page has no
+  credential to send — does not apply to them.
+
+  **Consequence.** In the **default token-holding configuration**, any page the
+  operator visits can read the export listing and the contents of every file
+  under `EXPORTS_DIR` cross-origin. This is an escalation over the
+  already-documented "unauthenticated to anyone who can reach the port": a
+  firewalled port is still reachable from the operator's own browser.
+
+  Found by the cumulative Critic 2026-08-03 as a contradiction between the README
+  (which called token-mode wildcard "a nuisance rather than a hole") and the
+  security model's own boundary table. **The README is corrected; the behavior is
+  not** — it is unfixed in **both 1.9.1 and the pending 2.0.0**.
+
+  **`stage: design` because the fix is a real choice**, not a mechanical edit:
+  1. Narrow `Access-Control-Allow-Origin` on those three routes only.
+  2. Drop the wildcard entirely and require an allowlist in **both** modes.
+  3. Decide `EXPORTS_DIR` is publishable by definition — and say so far louder
+     than the current docs do.
 
 ## Promoted
 
@@ -685,3 +628,114 @@
   `risk_surface` file (`bridge/server.js`), so it needs a build plan and a Critic
   pass — not a drive-by. Still cheapest to land inside the 2.0.0 major bump, since
   it is a behavior change to a public surface.
+
+- **[SEC-K4RD]** A destructive operation should not be reachable by GET — `GET /v2/session/file?consume=true` unlinks the file it returns
+  `effort: M · impact: M · area: security · source: critic · added: 2026-08-03 · status: shipped · closed-by: safe-get · stage: ready · reviewed: 2026-08-03 · related: CRS-4T8K · refs: .prawduct/artifacts/security-model.md § Known gaps G7, .prawduct/artifacts/security-model.md § Known gaps G5, .prawduct/artifacts/api-contract.md § Direction`
+
+  Surfaced 2026-08-03 while building the origin gate for `CRS-4T8K`.
+  `bridge/v2/routes.js` routes this on `method === 'GET'` (line ~469) and, when
+  `consume=true`, `unlink`s the file after reading it (~line 519).
+
+  **Why this route was the sharpest edge of the CORS/CSRF hole:** a `no-cors` GET
+  — `<img src>`, `<script src>`, `<iframe>`, a top-level navigation — needs no
+  preflight, no script, and carries **no `Origin` header**. Nothing about the
+  request shape signals "state change", so nothing along the browser path was
+  positioned to stop it.
+
+  **The origin gate does not fully close this.** It blocks the browser path via
+  `Sec-Fetch-Site`, but a header check is strictly weaker than not accepting the
+  request shape at all: any client that omits **both** `Origin` and
+  `Sec-Fetch-Site` reaches the route. That residual is small in practice (a
+  non-browser caller in unauthenticated mode already has every route), but the
+  defense is a header the server does not control, not the method semantics it
+  does.
+
+  **Fix shape (as first proposed — superseded 2026-08-03 by the decision below;
+  kept verbatim because the reasoning it got wrong is the useful part):** require
+  `POST` (or `DELETE`) for consume-on-read. That is a
+  **breaking change to the `/v2` surface** — narrowing what an existing path
+  accepts — and is therefore governed by the api-contract **Direction** norm,
+  which requires a new path-major (`/v3`) for removing or narrowing, never a
+  minor or patch. So the requirement is not just "change the method": it is a
+  `/v3` question, or an additive `POST` alias plus a deprecation window on the
+  GET form. That is why this is `stage: requirements`, not `ready`.
+
+  **Deliberately NOT folded into 2.0.0.** It is a separate requirement that
+  surfaced mid-build; inventing it into the origin-gate chunk would have been
+  exactly the silent-requirement failure the methodology names. Recorded here so
+  the decision is visible rather than lost — note that the 2.0.0 major bump was
+  the cheapest carrier for a breaking `/v2` change, so deferring it has a real
+  cost the owner should weigh (see `REL-BRS7`).
+
+  ---
+
+  **DECISION — 2026-08-03 (discovery). `stage: requirements` → `stage: ready`;
+  the requirement is written and the fix is operator-chosen from four framed
+  options.**
+
+  **The strongest argument is not CSRF, and framing it that way is what kept this
+  item at `requirements`.** RFC 9110 §9.2.1 defines `GET` as a *safe* method — no
+  side effects for which the client is responsible — and real infrastructure is
+  built on that guarantee. Link unfurlers (Slack, Discord), browser prefetch and
+  speculative loads, corporate proxies, security scanners and crawlers all issue
+  bare `GET`s. **None of them sends `Origin` or `Sec-Fetch-Site`, and none of them
+  is a browser driven by a hostile page.** So the `CRS-4T8K` origin gate is blind
+  to every one of them *by construction*, not by oversight: it keys on headers
+  only a browser sets. Anything that ever saw such a URL — in a log, a chat
+  message, a bookmark, a bug report — could delete the file by merely looking at
+  it. That is a far larger population than "a page the operator visited", and it
+  is why the header gate was never going to be the answer here.
+
+  **This also explains the gate's residual** (recorded above as "small in
+  practice"). `GET` is precisely the method browsers do *not* tag with `Origin` —
+  Fetch appends `Origin` when the method is **not** `GET`/`HEAD`. So moving a
+  destructive operation onto any other method converts it into one the gate can
+  *always* see. The residual is not a separate weakness to patch; it is the same
+  fact as this item, seen from the other side.
+
+  **Decided fix.** `GET /v2/session/file` becomes a **pure read**. The consuming
+  form moves to **`POST`**, where every browser-issued request carries `Origin`
+  (so the `CRS-4T8K` gate applies) and where no prefetcher, unfurler or crawler
+  will go.
+
+  **`consume=true` on a `GET` must be REFUSED, not silently ignored.** Returning
+  the bytes without deleting the file would leave the caller believing it had
+  consumed a file that still exists — a correctness bug handed to whoever
+  migrates, which is worse than an error they can see. Refuse loudly.
+
+  **Known consumer: TangleClaw.** It uses `consume` for degraded-wrap
+  capture-back — the feature `consume` shipped for in 1.9.0. The migration is one
+  line, but this is a real first-party consumer, not a hypothetical one, so the
+  change needs to be announced rather than merely released.
+
+  **Norm position.** This is a breaking `/v2` change and is recorded as a
+  departure from the api-contract compatibility (**Direction**) norm — the
+  **second narrowing of the `/v2` surface**, exactly as `api-contract.md`
+  anticipated ("Changing that method is a second narrowing"). Counting all
+  departures from that norm it is the **third** (`BRIDGE_TOKEN` 2026-08-02,
+  `CRS-4T8K` 2026-08-03); counting narrowings of `/v2` it is the second. Note
+  this supersedes the `/v3`-or-deprecation-window framing above: the decision is
+  to take the departure in the 2.0.0 major, not to open a path-major.
+
+  ---
+
+  **SHIPPED — 2026-08-03**, scope `safe-get`, on `release/2.0.0`.
+
+  `GET /v2/session/file` is now a pure read. The consuming form moved to `POST`,
+  and `consume=true` on a `GET` is refused with **405** + `Allow: POST` rather
+  than silently ignored. Guards live in
+  `bridge/v2/__tests__/session-file.test.js` under the
+  `GET /v2/session/file must not have side effects (G7)` describe block, and were
+  **falsified by running both mutations** (not merely observed green).
+
+  **Discovery reframed this item, and the reframing is the durable lesson.** It
+  was filed as **CSRF residue** — the leftover of the `CRS-4T8K` origin gate. That
+  framing is what pinned it at `stage: requirements`, because as a CSRF patch the
+  fix looked like a small hardening that still had to buy its way past the
+  compatibility norm. The actual justification turned out to be
+  **RFC 9110 §9.2.1: `GET` is a safe method**. Restated that way the change is not
+  a patch on a header gate at all — it is bringing the route into line with a
+  guarantee the whole web already assumes — and *that* is what made the departure
+  from the api-contract compatibility (Direction) norm defensible. A breaking
+  `/v2` narrowing is hard to justify to close a residual; it is straightforward to
+  justify to stop violating method semantics.

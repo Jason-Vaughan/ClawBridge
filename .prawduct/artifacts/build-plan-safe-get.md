@@ -13,7 +13,7 @@ governed_by:
       - "additive capability ships as an optional field/export defaulting to prior behavior → inapplicable because this plan adds no capability; it moves an existing one to a different method"
       - "error model: { error: '<message>' } with the HTTP status carrying semantics → conforms — the refusal is a 405 with that body shape, adding no new error field"
       - "cursor positions stay stable and monotonic → inapplicable because this plan touches no event-log or cursor code"
-      - "extension guarantees are contract, not implementation → inapplicable because /v2/session/file is a broker route, not the extension surface"
+      - "extension guarantees are contract, not implementation → exception, recorded late: first dispositioned inapplicable by reading the guarantee as init-timing plus error-isolation only. That missed request DELIVERY — the sibling cors-origin gate fronts /tools/* and the extension sees fewer requests. It narrows rather than widens, so no extension becomes unsafe, but docs/tools-extension.md ships in the npm tarball and now documents the second filter"
       - "reserved namespaces (/v2, /api/*, /health, /projects) → conforms — no namespace is claimed; an existing path gains a method"
       - "versioning: path-major on /v2/*, npm semver the finer channel → conforms via the recorded departure; the 2.0.0 major is the carrier"
       - "/health additions are additive → inapplicable because /health is unchanged"
