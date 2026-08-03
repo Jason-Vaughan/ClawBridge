@@ -71,7 +71,7 @@ test fails if `BRIDGE_TOKEN` in that file is given any value.
 
 ## Status
 
-- [ ] Chunk 01: Close the documented path around the auth guard
+- [x] Chunk 01: Close the documented path around the auth guard
 
 ## Done when
 

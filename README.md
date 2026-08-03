@@ -147,8 +147,17 @@ Edit `bridge/.env` and set at minimum:
 
 ```env
 BRIDGE_PORT=3201
-BRIDGE_TOKEN=          # a secret you invent — see below
-CLAUDE_CODE_OAUTH_TOKEN=   # issued by `claude setup-token`
+
+# A secret you invent — see below. Note that comments must be on their own line:
+# the loader takes everything after `=` verbatim, so a trailing comment would
+# become part of the token.
+BRIDGE_TOKEN=
+
+# Issued by `claude setup-token`.
+CLAUDE_CODE_OAUTH_TOKEN=
+
+# Directory containing the projects the bridge may operate on.
+PROJECTS_DIR=/path/to/your/projects
 ```
 
 **These two tokens come from different places, which is the most common setup confusion:**

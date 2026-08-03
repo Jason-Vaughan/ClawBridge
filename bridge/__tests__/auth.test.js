@@ -421,22 +421,26 @@ describe('rejected requests leave a trace, without leaking the credential', () =
   });
 });
 
-describe('the documented install path cannot route around the guard', () => {
-  // README Quickstart step 2 says `cp bridge/.env.example bridge/.env`. If the
-  // example ships a token value, that copy produces a *running* bridge with a
-  // guessable credential on a 0.0.0.0 bind — and the guard sees a token present
-  // and says nothing. The example shipped `BRIDGE_TOKEN=changeme` until this
-  // test existed.
+describe('no documented install path can route around the guard', () => {
+  // README Quickstart step 2 says `cp bridge/.env.example bridge/.env`, and the
+  // README also prints an env block to paste. BOTH are documented install paths,
+  // and the guard only checks that a token is PRESENT — so any sample that
+  // yields a non-empty value hands the reader a running bridge on a credential
+  // published in this repo.
   //
-  // Asserts the behavior rather than grepping for 'changeme', which would pass
-  // against any future placeholder.
+  // This has now happened twice: `.env.example` shipped `BRIDGE_TOKEN=changeme`,
+  // and the fix for that introduced a README block with an INLINE comment, which
+  // the loader (bridge/server.js — only skips lines *starting* with #) parses as
+  // the value. Hence one test over every documented sample rather than one test
+  // per file: the next sample is covered before it is written.
 
   /**
-   * Parse .env.example the way bridge/server.js parses .env.
+   * Parse env-file text the way bridge/server.js parses .env — including its
+   * inline-comment behavior, which is the whole point.
+   * @param {string} text
    * @returns {Record<string,string>}
    */
-  function readEnvExample() {
-    const text = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
+  function parseEnv(text) {
     /** @type {Record<string,string>} */
     const out = {};
     for (const line of text.split('\n')) {
@@ -448,21 +452,53 @@ describe('the documented install path cannot route around the guard', () => {
     return out;
   }
 
-  it('ships no BRIDGE_TOKEN value', () => {
-    expect(readEnvExample().BRIDGE_TOKEN || '').toBe('');
+  /**
+   * Every env sample a reader could copy: the shipped template, plus every
+   * ```env fenced block in the README.
+   * @returns {Array<{ source: string, vars: Record<string,string> }>}
+   */
+  function documentedSamples() {
+    const root = path.join(__dirname, '..', '..');
+    const samples = [{
+      source: 'bridge/.env.example',
+      vars: parseEnv(fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8')),
+    }];
+    const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+    let i = 0;
+    for (const m of readme.matchAll(/```env\n([\s\S]*?)```/g)) {
+      samples.push({ source: `README.md env block #${++i}`, vars: parseEnv(m[1]) });
+    }
+    return samples;
+  }
+
+  const samples = documentedSamples();
+
+  it('finds the samples it claims to check', () => {
+    // Guards the guard: if the fence syntax or filename changes, the loop below
+    // would silently check nothing and stay green.
+    expect(samples.length).toBeGreaterThanOrEqual(2);
+    expect(samples.some(s => s.source.startsWith('README'))).toBe(true);
   });
 
-  it('refuses to start when configured from the example verbatim', async () => {
-    const example = readEnvExample();
-    const bridge = await spawnBridge({
-      token: example.BRIDGE_TOKEN || '',
-      extraEnv: { CLAUDE_CODE_OAUTH_TOKEN: example.CLAUDE_CODE_OAUTH_TOKEN || '' },
-    });
+  it.each(samples.map(s => [s.source, s.vars]))(
+    '%s yields no usable BRIDGE_TOKEN',
+    (_source, vars) => {
+      expect((vars.BRIDGE_TOKEN || '').trim()).toBe('');
+    },
+  );
 
-    const code = await bridge.waitForExit();
-    expect(code).not.toBe(0);
-    expect(bridge.getOutput().stdout).not.toContain('ClawBridge listening');
-  });
+  it.each(samples.map(s => [s.source, s.vars]))(
+    'a bridge configured from %s refuses to start',
+    async (_source, vars) => {
+      const bridge = await spawnBridge({
+        token: vars.BRIDGE_TOKEN || '',
+        extraEnv: { CLAUDE_CODE_OAUTH_TOKEN: vars.CLAUDE_CODE_OAUTH_TOKEN || '' },
+      });
+      const code = await bridge.waitForExit();
+      expect(code).not.toBe(0);
+      expect(bridge.getOutput().stdout).not.toContain('ClawBridge listening');
+    },
+  );
 
   it('tells the operator how to generate one', async () => {
     // The FATAL block is read by whoever the install stopped — often not the
