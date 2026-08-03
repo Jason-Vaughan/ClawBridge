@@ -357,6 +357,38 @@ The compatibility half — *leaves the plain read untouched* and *still reads on
 consume* — stays green under both, which is what shows the change is scoped to the consuming
 form rather than to the route.
 
+### G8 — The npm tarball shipped local session transcripts · `PKG-4R7T` · **FIXED 2026-08-03**
+
+`package.json`'s `files` whitelist listed `bridge/`, which pulled
+`bridge/.session-history/*.json` into every published tarball. Confirmed by downloading the
+published 2.0.0 artifact: five snapshots present, one created during that day's own
+verification run. 1.9.1 shipped four of the same.
+
+**Scanned before being written up, and clean** — no credential-shaped strings, no host paths,
+no usernames. So there was no leak and nothing to rotate. The *channel* is the defect: boundary
+1a and `SEC-PZ50` both record that transcripts are unfiltered raw PTY output which may echo
+`.env` values and keys verbatim, and the set grows with every session on whatever machine
+happens to publish.
+
+**Why gitignore did not prevent it:** npm's `files` whitelist overrides `.gitignore`. The
+directory is untracked, which is exactly what made this invisible — a revert to the old
+whitelist changes no tracked file, produces no diff to review, and republishes whatever
+transcripts are on disk.
+
+Coverage: `bridge/__tests__/packaging.test.js`. It asserts against the manifest
+`npm pack --dry-run --json` actually produces, **not** against the `files` array — an array
+check would pass on any spelling that happens to include the directory. Verified by
+reintroducing the defect on 2026-08-03:
+
+| Reintroduced defect | Tests that go red |
+|---|---|
+| Revert to `files: ["bridge/"]` — the silent-republish case | *carries no session transcripts*, *carries no dotted directory under bridge/…* |
+| Over-narrow the whitelist by dropping `bridge/v2/` | *still ships bridge/v2/routes.js*, *still ships bridge/v2/sessions.js*, *still ships the broker test suites…* |
+
+Pinned in both directions because the first hand-narrowing of this whitelist silently dropped
+`bridge/__tests__/` (`bridge/*.js` does not match a subdirectory), and a guard that only
+forbids would have passed a whitelist that shipped nothing.
+
 ## Accepted risk — `CRS-8N3P` disclosed before it was fixed (2026-08-03)
 
 **What happened.** `CRS-8N3P` — wildcard CORS exposing `/health`, `/exports` and `/exports/*`
