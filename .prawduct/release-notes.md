@@ -4,3 +4,19 @@
      .prawduct/change-log.md `release=` tags. Do not hand-edit — edits will
      be overwritten on next regen. See change-log.md for full per-release
      bodies; this file is a digest. -->
+
+## v2.0.0
+
+### 2026-08-03: Close the documented install path around the auth guard
+
+**Entry:** 2026-08-03: Close the documented install path around the auth guard
+
+**Chunks shipped:** 01
+
+### 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
+
+**Entry:** 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
+
+**Chunks shipped:** 01, 02
+
+See `.prawduct/change-log.md` for full details.

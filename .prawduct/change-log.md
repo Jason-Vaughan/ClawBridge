@@ -50,7 +50,7 @@
 
 ## 2026-08-03: Close the documented install path around the auth guard
 
-<!-- prawduct: chunks=01 | status=shipped -->
+<!-- prawduct: chunks=01 | status=shipped | release=v2.0.0 -->
 
 **Why:** the `SEC-UTP4` guard checks that `BRIDGE_TOKEN` is *present*. `.env.example`
 shipped `BRIDGE_TOKEN=changeme`, and README Quickstart step 2 says to copy that file — so
@@ -82,7 +82,7 @@ not what made this a defect — the defect was shipping the weak value.
 
 ## 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
 
-<!-- prawduct: chunks=01,02 | status=shipped -->
+<!-- prawduct: chunks=01,02 | status=shipped | release=v2.0.0 -->
 
 <!-- No release= tag on purpose: the BREAKING marker computes a major bump, but the
      version is the owner's decision and nothing in this bundle ships it — package.json

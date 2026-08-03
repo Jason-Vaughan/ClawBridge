@@ -4,6 +4,8 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-08-03
+
 ### Changed
 - **BREAKING: the bridge refuses to start without `BRIDGE_TOKEN`.** Any deployment currently running without one will fail to start after upgrading, and under launchd `KeepAlive` / systemd `Restart=always` that presents as a respawn loop rather than a single failure. This is deliberate — the previous behavior served every route unauthenticated on a `0.0.0.0` bind — but it is a breaking change for installs the author cannot see or roll back, so it is marked as one rather than shipped quietly under a patch. Recovery is one variable: set `BRIDGE_TOKEN`, or set `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` to keep the old behavior deliberately. **Before choosing the override, note that CORS is wildcard**: with no token, any web page the operator visits can cross-origin `POST /v2/session/start` against `localhost` and spawn an agent with shell access. The override is only safe on a host where nothing else can reach the port *and* no browser runs. Details under Security below.
 
