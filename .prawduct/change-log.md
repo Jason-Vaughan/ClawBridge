@@ -48,6 +48,28 @@
      derived view. Don't hand-edit them — add/update a tagged entry here and
      run `prawduct-hook regen-views`. -->
 
+## 2026-08-03: Close the documented install path around the auth guard
+
+<!-- prawduct: chunks=01 | status=shipped -->
+
+**Why:** the `SEC-UTP4` guard checks that `BRIDGE_TOKEN` is *present*. `.env.example`
+shipped `BRIDGE_TOKEN=changeme`, and README Quickstart step 2 says to copy that file — so
+the documented install produced a running bridge on a guessable credential, `0.0.0.0` bind,
+wildcard CORS, and no complaint from the guard. Shipping the weak value ourselves defeated
+the control we had just added.
+
+**What:** `.env.example` ships the value empty, so copying it leads *into* the refusal;
+both it and the FATAL block name `openssl rand -base64 32`; the README separates the
+invented secret from the issued one, which is the setup confusion behind the operator's
+question that surfaced this.
+
+**Coverage:** 3 tests. They assert the behavior — a bridge spawned from `.env.example`'s own
+variables refuses to start — rather than grepping for `changeme`, which would pass against
+any future placeholder.
+
+**Not done:** runtime token-strength validation. Real feature, real false-positive risk, and
+not what made this a defect — the defect was shipping the weak value.
+
 ## 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
 
 <!-- prawduct: chunks=01,02 | status=shipped -->

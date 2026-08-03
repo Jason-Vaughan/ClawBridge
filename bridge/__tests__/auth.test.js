@@ -420,3 +420,58 @@ describe('rejected requests leave a trace, without leaking the credential', () =
     expect(output).not.toContain(TEST_TOKEN);   // nor the real one
   });
 });
+
+describe('the documented install path cannot route around the guard', () => {
+  // README Quickstart step 2 says `cp bridge/.env.example bridge/.env`. If the
+  // example ships a token value, that copy produces a *running* bridge with a
+  // guessable credential on a 0.0.0.0 bind — and the guard sees a token present
+  // and says nothing. The example shipped `BRIDGE_TOKEN=changeme` until this
+  // test existed.
+  //
+  // Asserts the behavior rather than grepping for 'changeme', which would pass
+  // against any future placeholder.
+
+  /**
+   * Parse .env.example the way bridge/server.js parses .env.
+   * @returns {Record<string,string>}
+   */
+  function readEnvExample() {
+    const text = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
+    /** @type {Record<string,string>} */
+    const out = {};
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) out[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
+    }
+    return out;
+  }
+
+  it('ships no BRIDGE_TOKEN value', () => {
+    expect(readEnvExample().BRIDGE_TOKEN || '').toBe('');
+  });
+
+  it('refuses to start when configured from the example verbatim', async () => {
+    const example = readEnvExample();
+    const bridge = await spawnBridge({
+      token: example.BRIDGE_TOKEN || '',
+      extraEnv: { CLAUDE_CODE_OAUTH_TOKEN: example.CLAUDE_CODE_OAUTH_TOKEN || '' },
+    });
+
+    const code = await bridge.waitForExit();
+    expect(code).not.toBe(0);
+    expect(bridge.getOutput().stdout).not.toContain('ClawBridge listening');
+  });
+
+  it('tells the operator how to generate one', async () => {
+    // The FATAL block is read by whoever the install stopped — often not the
+    // person who wrote the config. "Set BRIDGE_TOKEN" without a command sends
+    // them looking for a token to be issued, which is the other variable.
+    const bridge = await spawnBridge({ token: '' });
+    await bridge.waitForExit();
+
+    const { stdout, stderr } = bridge.getOutput();
+    expect(stdout + stderr).toMatch(/openssl rand|head -c|uuidgen/);
+  });
+});

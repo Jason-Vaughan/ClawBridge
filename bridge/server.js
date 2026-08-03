@@ -982,6 +982,10 @@ async function startServer() {
     console.error('  with shell access to this host, so it will not start without a bearer token.');
     console.error('');
     console.error('  Fix: set BRIDGE_TOKEN in bridge/.env (or the service environment).');
+    console.error('  It is a secret you invent, not one that is issued — generate one with:');
+    console.error('    openssl rand -base64 32');
+    console.error('  (This is NOT the same as CLAUDE_CODE_OAUTH_TOKEN, which comes from');
+    console.error('   `claude setup-token`.)');
     console.error('  Override — only if nothing else can reach this port AND no browser runs');
     console.error('  on this host (CORS is wildcard, so a visited page could call the API):');
     console.error('    CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true');
