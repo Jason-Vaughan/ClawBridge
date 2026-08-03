@@ -70,14 +70,17 @@ it by accident — starts it anyway, but `/health` then reports `insecure: true`
 `auth.required: false`, and every boot logs a warning. `checkAuth` returns the opt-in flag
 rather than a bare `true`, so an unset token cannot widen authority on its own even if the
 startup guard were ever bypassed. Token comparison is now `crypto.timingSafeEqual` behind a
-length guard (closes G3). **The guard shipped defeated by our own documentation — twice.** It checks that a token is
-*present*, and `bridge/.env.example` shipped `BRIDGE_TOKEN=changeme` while README Quickstart
-said to copy that file: the documented install produced a running bridge on a guessable
-credential, with the guard raising nothing. Fixing that introduced the same class in the
-README's env block, where an *inline* comment (`BRIDGE_TOKEN=   # a secret you invent`)
-becomes the value, because the loader only skips lines that **start** with `#` — verified: a
-bridge started, reported "Auth: Bearer token required", on a string published verbatim in
-this repo.
+length guard (closes G3). **The guard shipped defeated by our own documentation, on both documented paths.** It
+checks that a token is *present*. `bridge/.env.example` shipped `BRIDGE_TOKEN=changeme`, and
+the README's paste-able env block shipped `BRIDGE_TOKEN=replace-me` — both released, both
+present, so either install produced a running bridge on a credential published verbatim in
+this repo while the guard raised nothing.
+
+The first fix attempt closed only the example file and replaced the README's literal with an
+*inline* comment (`BRIDGE_TOKEN=   # a secret you invent`). The loader skips only lines that
+**start** with `#`, so the comment became the value — verified: a bridge started and reported
+"Auth: Bearer token required" on that string. That round changed the mechanism without
+closing the hole; it did not reopen something already closed.
 
 The lesson is not "check the example file". A presence check is only as strong as **every**
 sample a reader can copy, so regression coverage enumerates them — `.env.example` plus every

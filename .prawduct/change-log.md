@@ -63,10 +63,13 @@ both it and the FATAL block name `openssl rand -base64 32`; the README separates
 invented secret from the issued one, which is the setup confusion behind the operator's
 question that surfaced this.
 
-**And then the fix reopened it.** The README env block written to replace `changeme` put an
-inline comment after `BRIDGE_TOKEN=`. The loader skips only lines that *start* with `#`, so
-that comment became the value — non-empty, guard silent, bridge running on a string
-published in this repo. Verified before fixing.
+**Two shipped samples, not one.** `main`'s README already shipped
+`BRIDGE_TOKEN=replace-me` in its own paste-able env block — the same released defect in the
+second documented install path. The first fix attempt replaced that literal with an
+*inline* comment, which the loader (it skips only lines that *start* with `#`) takes as the
+value: non-empty, guard silent, bridge running on a string published in this repo. So that
+round changed the mechanism without closing the hole — it did not reopen a closed one.
+Verified against a running bridge before fixing.
 
 **Coverage:** 6 cases over every documented sample — `.env.example` plus each `env`-fenced
 block in the README — asserting each yields no usable token and that a bridge configured
