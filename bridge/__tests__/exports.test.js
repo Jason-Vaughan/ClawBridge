@@ -208,11 +208,11 @@ const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 const itUnlessRoot = asRoot ? it.skip : it;
 
 describe('filesystem errors must not kill the daemon', () => {
-  // The `ext` ReferenceError was one instance of a class: these handlers run
-  // before the auth check, so they sit outside the main request try/catch, and
-  // every fs call in them is synchronous. An uncaught throw in an
-  // http.createServer callback is not a 500 — it ends the process. Fixing the
-  // one deterministic instance left the class open; these pin the class.
+  // Historically these throws killed the daemon: the handlers run before the
+  // auth check, and at the time nothing wrapped the callback. The wrapper added
+  // later (see the sibling block below) is what closes that class. These tests
+  // pin the narrower guarantee that survives it — a filesystem error yields a
+  // route-specific 500 and the process keeps serving.
 
   itUnlessRoot('returns 500 and keeps serving when a file cannot be read', async () => {
     const dir = makeExportsDir();

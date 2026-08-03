@@ -54,8 +54,8 @@ containment boundary has misread it.
 ## Known gaps
 
 G1-G3 came from reconciling the code against the stated posture; G4 came from self-review
-during the G1 fix; G5 from Critic review of that fix. None were introduced by this
-onboarding. G1, G3 and G4's crash are fixed; G2 is an owner-accepted risk; G5 is documented
+during the G1 fix; G6 and G5 from Critic review of that fix. None were introduced by this
+onboarding. G1, G3, G4's crash and G6 are fixed; G2 is an owner-accepted risk; G5 is documented
 and open (`CRS-4T8K`). **This register is not closed** — it is what has been examined so
 far.
 
@@ -135,18 +135,22 @@ records in `learnings.md`. Item 3 is closed; items 1 and 2 stand as recorded des
 'inline'` — the ternary was dead (both branches identical) over an undefined variable.
 
 The second closed the **class**, after Critic pointed out that removing one deterministic
-throw left the structural property intact. Both `/exports` handlers run before the auth
-check, so they cannot sit inside the main request `try` (that opens after auth, and moving
-them there would make the routes private) — and every fs call in them is synchronous. An
-uncaught throw in an `http.createServer` callback is not a 500; it ends the process. Other
-reachable triggers survived: `EACCES` on an unreadable file (**verified**: `PROCESS DEAD`,
-the port stopped answering) and TOCTOU `ENOENT` on a file rotated away mid-request. Both
-handlers now carry their own `try/catch` returning 500, and the listing tolerates a single
-unstattable entry rather than failing wholesale.
+throw left the structural property intact. Every fs call in these handlers is synchronous,
+and at the time an uncaught throw in an `http.createServer` callback was not a 500 — it
+ended the process. Other reachable triggers survived: `EACCES` on an unreadable file
+(**verified**: `PROCESS DEAD`, the port stopped answering) and TOCTOU `ENOENT` on a file
+rotated away mid-request. Both handlers gained their own `try/catch` returning 500, and the
+listing tolerates a single unstattable entry rather than failing wholesale.
 
-Coverage: `bridge/__tests__/exports.test.js`, 16 tests. Both guards verified by
-reintroducing the respective defect — 3 tests fail without the `ext` fix, 1 without the
-EACCES guard.
+**That was still not the class** — see G6. The whole request callback is now wrapped, so a
+throw anywhere in it returns 500. The `/exports` guards remain, but their reason has
+changed: they give a filesystem error a route-specific status and log line instead of the
+wrapper's generic 500, on the one surface that is unauthenticated and reads arbitrary
+paths. They are no longer what stands between a bad `stat` and a dead daemon.
+
+Coverage: `bridge/__tests__/exports.test.js`, 25 tests. Each guard verified by reintroducing
+the defect it guards — 3 fail without the `ext` fix, 1 without the EACCES guard, 1 without
+the per-entry stat guard.
 
 The three problems as found:
 
@@ -168,6 +172,29 @@ The three problems as found:
 
 Containment that does hold: traversal, absolute-path, NUL, and symlink-escape checks are all
 present and correct on the route.
+
+### G6 — Any malformed request target killed the process · **FIXED 2026-08-02** · `EXP-9WQ2`
+
+The register had no entry for this, which was itself the defect: `CHANGELOG.md` rates it as
+*more* urgent than G4 because it needs no file to exist and no filename to guess.
+
+`new URL(req.url, ...)` is the **first statement** of the request handler — above the auth
+check, above the `/exports` handlers, outside every `try`. It throws `ERR_INVALID_URL` on a
+target like `//` or `///`, which `curl` normalizes away but a raw socket sends verbatim.
+The callback is `async`, so the throw surfaced as an unhandledRejection and Node's default
+terminated the process. Verified: `GET // HTTP/1.1` → `PROCESS DEAD`, port stops answering,
+every in-memory PTY session lost, repeatable under `KeepAlive`.
+
+**Fix:** malformed targets return 400, and the **entire request callback is wrapped**. That
+wrapper — not the per-handler guards — is what closes this class. Any route added before the
+auth check inherits the protection automatically, which is the property the two previous
+attempts lacked.
+
+This is a per-request boundary, deliberately **not** a process-level `uncaughtException`
+handler; see `architecture.md`, which rejects that and says why.
+
+Three attempts were needed to close one class: fix the undefined variable, then guard both
+`/exports` handlers, then wrap the callback. Each attempt fixed the instance in front of it.
 
 ### G5 — Wildcard CORS makes the unauthenticated mode browser-reachable · `CRS-4T8K` · OPEN
 
