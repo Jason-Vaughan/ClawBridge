@@ -91,6 +91,39 @@
      Prawduct onboarding. They are findings from reading the repo against its own
      docs — none were introduced by the onboarding itself. -->
 
+- **[REL-BRS7]** Ship v2.0.0 and get habitat off the vulnerable 1.9.1
+  `effort: S · impact: L · area: release · source: user · added: 2026-08-03 · status: open · stage: ready`
+
+  **High priority — parked deliberately 2026-08-03, to be picked up in a fresh
+  session.** The work is done; what remains is the irreversible half.
+
+  `main` has all the code. `release/2.0.0` (`e49fe37`, pushed) has the prep:
+  version 2.0.0, CHANGELOG promoted, `release=v2.0.0` tags, release notes
+  regenerated. Nothing published — npm still serves 1.9.1.
+
+  **Why it is high priority rather than routine housekeeping:** habitat is
+  running 1.9.1, which has two unauthenticated single-request process kills
+  (`GET /exports/<file>`, `GET //`), each of which takes every live PTY session
+  with it and is repeatable under `KeepAlive`. And RentalClaw pins `^1.5.0`, so
+  publishing 2.0.0 *cannot* break habitat and habitat will *never* pick it up —
+  the fix does nothing until that range is bumped by hand. Verify current state
+  with the check in `.prawduct/.handoff-notes.md` rather than trusting this item.
+
+  Steps: tag + GitHub release + `npm publish`; merge the branch back to `main`;
+  bump RentalClaw's range to `^2.0.0` (**another repo — flag, do not edit from a
+  ClawBridge session**); `npm install` and restart habitat; confirm `/health`
+  reports `bridge: 2.0.0`. Habitat's plist already sets `BRIDGE_TOKEN`, so the
+  breaking startup change is a no-op there.
+
+  **Time-sensitive in one specific way:** `release/2.0.0` promoted
+  `[Unreleased]`, so it conflicts with `main` as soon as anything lands there
+  under a fresh `[Unreleased]`. Re-cutting is ~10 minutes; resolving that
+  conflict risks silently dropping a changelog entry. If the release slips more
+  than a few days, delete the branch and re-cut.
+
+  Open decision riding with it: `CRS-4T8K` (narrow CORS when unauthenticated) is
+  free in a major bump and expensive after one.
+
 - **[CRS-4T8K]** Wildcard CORS makes the unauthenticated escape hatch unsafe on any host with a browser
   `effort: S · impact: M · area: security · source: critic · added: 2026-08-02 · status: open · stage: design`
 
