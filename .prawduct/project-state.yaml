@@ -1,0 +1,1234 @@
+# Project State — ClawBridge
+#
+# Single source of truth for all project decisions.
+# Read at session start to understand where things stand.
+#
+# Fields start as null and are filled during discovery.
+# Partially-populated state is normal throughout discovery.
+
+# =============================================================================
+# CLASSIFICATION
+# =============================================================================
+# Populated during discovery. Confirmed with the user before planning.
+
+# Backfilled 2026-08-02 in discovery reconciliation mode from owner-authored
+# material already in the repo (README.md, docs/bridge-v2-maintainer-guide.md,
+# docs/tools-extension.md, docs/bridge-v2-pty-broker-spec.md, CHANGELOG.md).
+# Those docs stay canonical for detail; this file is the source of truth for
+# classification and scope. Inferences are marked [ASSUMPTION] for veto.
+
+classification:
+  # Product domain. Values: utility, social, marketplace, productivity, b2b,
+  # content, automation, developer-tool, education, health, finance,
+  # entertainment, communication. May be multiple for hybrid products.
+  domain: [developer-tool, automation]
+
+  # Structural characteristics — architectural facts that determine what KINDS
+  # of artifacts a product needs. These are a small, stable set (6) that drive
+  # artifact generation. null = not applicable.
+  structural:
+    # User-facing interface. modality: screen|terminal|voice|spatial|minimal; platform: mobile|web|desktop|cross-platform
+    # Not applicable — ClawBridge has no human-facing UI. Every surface is an HTTP
+    # API consumed by an orchestrator; humans touch it only via curl/logs when
+    # operating it. Accessibility is therefore not-relevant (recorded in
+    # design_decisions.accessibility_approach), not skipped.
+    has_human_interface: null
+
+    # Runs without user interaction. trigger: scheduled|event-driven|always-on
+    # Long-lived host daemon under launchd (com.clawbridge.builder, KeepAlive) or
+    # systemd. Nobody is watching when a session fails at 3am — silent failure is
+    # the default failure mode this product must design against.
+    runs_unattended:
+      trigger: always-on
+
+    # Exposes or consumes APIs. consumers: internal|external|both
+    # When this exposes an interface, record the versioning + deprecation + error-model
+    # decisions in design_decisions (api_versioning_approach, api_error_model_approach);
+    # the api-versioning advisory nudges until they are recorded.
+    # TWO distinct programmatic surfaces, both public contracts:
+    #   1. HTTP JSON API (/v2/session/*, /health, /projects, /api/processes)
+    #   2. In-process Node module interface for the tools extension
+    #      ({ init, handleToolsRoute, getToolsHealth, close }) — docs/tools-extension.md
+    # "both": first-party consumers (TangleClaw, RentalClaw, OpenClaw) plus
+    # third parties, since the package is published publicly on npm.
+    exposes_programmatic_interface:
+      consumers: both
+
+    # Multiple distinct user types. parties: [list of distinct user types]
+    # Deliberately null: three ROLES exist (orchestrator author, host operator,
+    # tools-extension author — see product_definition.users.personas), but they
+    # share a single privilege tier. There is one bearer token, no per-party
+    # authorization, no data isolation between callers. Recording this as a
+    # characteristic would imply trust boundaries the product does not have.
+    # [ASSUMPTION | MED impact] If per-party scoping is ever wanted (e.g. a
+    # read-only orchestrator token), this flips and re-opens auth design.
+    # NOT hypothetical: GitHub issue #15 "[feature] Scoped bearer tokens — read
+    # vs write separation" is OPEN and proposes exactly that. Shipping it flips
+    # this characteristic, which per the ambient-norms rule forces an assumption
+    # audit — the single-privilege-tier reasoning in security-model.md and the
+    # scoped acceptance of SEC-PZ50 both rest on this being null, and both would
+    # need re-deriving. Treat #15 as a classification change, not a feature.
+    has_multiple_party_types: null
+
+    # Handles sensitive information. categories: [PII, financial, health, etc.]; regulatory: [list]
+    # No PII/financial/health data, but genuinely sensitive material passes through:
+    # long-lived auth credentials, and PTY transcripts + arbitrary project file
+    # contents that routinely contain secrets (.env values, keys) because the
+    # bridge streams whatever Claude Code prints.
+    handles_sensitive_data:
+      categories:
+        - credentials            # CLAUDE_CODE_OAUTH_TOKEN, BRIDGE_TOKEN
+        - source-code            # /projects/:project/files/*, /v2/session/file
+        - session-transcripts    # raw PTY output; may echo secrets verbatim
+      regulatory: []             # none applicable — no regulated data class
+
+    # Multiple processes or services communicating at runtime. topology: monolith-with-workers|client-server|microservices|pipeline
+    # Container-side orchestrator ⇄ host bridge over HTTP, and the bridge ⇄ one
+    # Claude Code child process per project over a PTY. The optional tools
+    # extension is in-process (not a separate process) by design.
+    multi_process_distributed:
+      topology: client-server
+
+  # Domain-specific characteristics — what makes THIS product unique in its domain.
+  # Dynamically identified, not from a predefined list.
+  # Each: { characteristic: string, implications: [string] }
+  domain_characteristics:
+    - characteristic: >-
+        Screen-scrapes an interactive TUI it does not own. Permission prompts are
+        recovered by pattern-matching ANSI-laden PTY output from Claude Code.
+      implications:
+        - Correctness is coupled to another product's UI wording and menu format;
+          it can break with no code change on this side, on someone else's release.
+        - Unit tests are necessary but NOT sufficient — parser/ANSI/timing changes
+          need a live E2E smoke run (maintainer guide, rollback norm 8).
+        - The parser is deliberately biased to false negatives over false positives;
+          a missed prompt stalls a session (visible), a spurious one injects a
+          keystroke into the wrong context (silent corruption). Bugs #5/#6/#10.
+        - docs/bridge-v2-bug-index.md + regression.test.js exist precisely because
+          this surface regresses; every known bug keeps a named regression test.
+
+    - characteristic: >-
+        The permission broker IS the safety mechanism for an agent holding host
+        shell and filesystem access.
+      implications:
+        - A defect in parser, policy, or path-safety does not merely misbehave —
+          it can auto-approve a destructive command on the operator's machine.
+        - >-
+          Fail-closed is mandatory — no envelope means everything requires
+          review, and an unmatched rule resolves to require_review.
+        - These paths are declared in risk_surfaces so even small diffs to them
+          get the deeper Critic roster.
+
+    - characteristic: >-
+        Sessions never self-terminate. Claude Code stays RUNNING awaiting input,
+        so "done" is inferred, not signalled.
+      implications:
+        - Completion detection is a caller-side contract the bridge can only
+          support (peek/testResult/inputReady), never fully guarantee.
+        - Named as known fragility #6 in the maintainer guide.
+
+    - characteristic: >-
+        Single-tenant embedded extension slot — the bridge hosts at most one
+        in-process handler under /tools/*, and proxies to nothing.
+      implications:
+        - The scope boundary is load-bearing and is stated in the README's
+          "not the right tool if" section; drift toward multi-service proxying
+          would change what this product is.
+        - An extension's failure must never take the broker down (guarantee 5).
+
+  # Risk and complexity profile.
+  risk_profile:
+    # Overall risk: low, medium, high.
+    # Drives discovery depth (low: 5-8 questions, medium: 8-15, high: 15-25).
+    # Medium overall — no regulated data class and a modest user base — but with
+    # a high-severity blast radius on one specific path, carried as a factor
+    # below and enforced via risk_surfaces rather than by inflating the overall
+    # rating. Discovery ran in reconciliation mode against existing docs.
+    overall: medium
+    # Specific risk factors identified during classification.
+    # Each: { factor, level (low/medium/high), rationale }
+    factors:
+      - factor: Permission-decision path (parser → policy → PTY keystroke)
+        level: high
+        rationale: >-
+          A wrong decision auto-approves a destructive shell command or an
+          out-of-project write on the host. This is the product's whole reason to
+          exist; getting it wrong is worse than not having the bridge at all.
+      - factor: Coupling to Claude Code's TUI (a dependency that ships on its own cadence)
+        level: high
+        rationale: >-
+          Detection can break silently on an upstream release. Failure mode is a
+          session stuck in RUNNING with no permission event.
+      - factor: Path traversal on file-serving surfaces
+        level: medium
+        rationale: >-
+          /projects/:project/files/* and /v2/session/file read from the host
+          filesystem. Consolidated into bridge/v2/path-safety.js in 1.9.0 so v1
+          and v2 rules cannot drift.
+      - factor: Credential handling
+        level: medium
+        rationale: >-
+          Long-lived CLAUDE_CODE_OAUTH_TOKEN and a single shared BRIDGE_TOKEN in
+          .env. Transcripts may echo secrets the agent printed.
+      - factor: Published npm package with third-party consumers
+        level: medium
+        rationale: >-
+          Breaking the HTTP or tools-extension contract breaks deployments the
+          author cannot see or fix. Raises the bar on versioning discipline.
+      - factor: Native dependency (node-pty prebuilds / spawn-helper exec bit)
+        level: low
+        rationale: >-
+          Historically a silent-failure source (#16); now self-healed at boot and
+          observable via ptySpawnable on /health.
+
+  # Prior art surfaced during discovery (via web search or domain knowledge).
+  # Informational — informs scope decisions, not a gate.
+  # Each: { name, url (optional), relevance, relationship (alternative|complement|reference) }
+  # Recorded from repo material and domain knowledge rather than a fresh search;
+  # this is a reconciliation of an already-built product, not a build decision.
+  prior_art:
+    - name: Claude Code headless / print mode (claude -p)
+      url: https://code.claude.com/docs/en/legal-and-compliance
+      relevance: >-
+        The sanctioned non-interactive path. Rejected as the basis for ClawBridge
+        because it gives no per-permission review hook — the whole point here is
+        that the orchestrator adjudicates each prompt.
+      relationship: alternative
+    - name: node-pty
+      url: https://github.com/microsoft/node-pty
+      relevance: The PTY primitive the broker is built on; its prebuild/exec-bit
+        behavior is a recorded operational risk.
+      relationship: reference
+    - name: expect / pexpect
+      relevance: The classic prior art for driving an interactive TUI by pattern
+        matching. Same technique, same fragility class — informs the
+        false-negative-over-false-positive bias.
+      relationship: reference
+    - name: Reverse proxies (Caddy, Traefik, nginx)
+      relevance: The correct tool when a container needs to reach MULTIPLE
+        host-side services. Named in the README as the explicit non-goal boundary.
+      relationship: alternative
+    - name: OpenClaw
+      url: https://github.com/openclaw/openclaw
+      relevance: The originating consumer — ClawBridge was built so OpenClaw could
+        drive Claude Code on a remote host.
+      relationship: complement
+    - name: TangleClaw
+      url: https://github.com/Jason-Vaughan/TangleClaw
+      relevance: First-party consumer; polls /api/processes as a sidecar and drove
+        the attachIfExists (1.7.0) and /v2/session/file (1.9.0) requirements.
+      relationship: complement
+
+# =============================================================================
+# PRODUCT DEFINITION
+# =============================================================================
+# Populated during discovery and definition.
+
+product_definition:
+  # One-sentence description of what this product is and why it exists.
+  vision: >-
+    A host-side HTTP bridge that exposes Claude Code as a supervised build tool
+    for automation systems — so a containerized orchestrator can drive real
+    builds on the host while adjudicating every permission Claude asks for.
+
+  # Measurable success criteria. What does "this worked" look like?
+  # [ASSUMPTION | MED impact] Derived from the README's stated purpose and the
+  # invariants the docs already treat as non-negotiable — not from an explicit
+  # goals list the owner wrote. Correct or replace.
+  goals:
+    - An orchestrator with no shell access to the host can complete a full build
+      cycle — start, work, approve/deny permissions, read results, end — over
+      HTTP alone.
+    - Every permission Claude Code raises is either auto-handled by a declared
+      envelope rule or surfaced for review. Nothing is silently approved, and no
+      envelope means nothing is auto-approved at all.
+    - A caller can discover and drive the whole API from /v2/api-docs without
+      reading the source.
+    - Upstream Claude Code TUI changes are caught by the regression suite or a
+      live E2E smoke run before they reach a deployment.
+    - >-
+      The bridge stays a broker — adding a consumer's embedded service never
+      requires forking or vendoring into bridge/.
+
+  # Who uses this product and what they need.
+  users:
+    # Each persona:
+    #   name: string
+    #   description: string
+    #   technical_level: none | basic | intermediate | advanced
+    #   primary_needs: [string]
+    #   constraints: [string]
+    personas:
+      - name: Orchestrator author
+        description: >-
+          Builds or operates the automation system (OpenClaw, TangleClaw, a
+          custom agent) that drives builds. Talks to the bridge over HTTP from
+          inside a container. The primary consumer — 100% of bridge/v2 exists
+          for this persona.
+        technical_level: advanced
+        primary_needs:
+          - Structured, machine-readable permission events rather than raw TUI text
+          - A cheap poll that answers "what is happening now" in one call (peek)
+          - To tell whether the session is waiting on it or still working (inputReady)
+          - Test results without parsing terminal output by hand
+          - A self-describing API so integration does not require reading source
+        constraints:
+          - Runs in a container; reaches the host only via host.docker.internal
+          - Cannot see the host terminal, so anything not in the API is invisible
+          - Must handle a session that never self-terminates
+
+      - name: Host operator
+        description: >-
+          Installs and runs the bridge daemon on the machine where builds happen.
+          Often the same person as the orchestrator author, in a different role.
+        technical_level: advanced
+        primary_needs:
+          - Install and start without debugging native build failures
+          - A health endpoint that distinguishes "up" from "actually able to spawn"
+          - To know which build is running after a deploy (health.bridge version)
+          - Loud, actionable logs when a session fails — not silence
+          - Documented rollback
+        constraints:
+          - launchd/systemd context — no GUI keychain, so headless auth is required
+          - Unattended; nobody is watching stdout when a session fails
+
+      - name: Tools-extension author
+        description: >-
+          Consumer who needs one additional HTTP service co-located inside the
+          bridge process, mounted at /tools/*. RentalClaw is the reference.
+        technical_level: advanced
+        primary_needs:
+          - A stable, documented module interface with explicit guarantees
+          - To stop vendoring files into bridge/ and track upstream from npm
+          - Confidence that their extension failing cannot crash the broker
+        constraints:
+          - One extension per bridge process; the mount prefix is always /tools
+          - Bridge-level bearer auth runs first; no per-route opt-out in v1
+
+  # Core user flows (UI), operations (API), or pipeline stages (automation).
+  # Each: { name, description, steps (optional), priority (must-have/nice-to-have) }
+  core_flows:
+    - name: Supervised build session
+      description: >-
+        The primary flow. Detailed step-by-step in README "Session Flow" and the
+        decision pipeline in docs/bridge-v2-maintainer-guide.md.
+      priority: must-have
+      steps:
+        - POST /v2/session/start with approvalEnvelope + permissionMode (non-auto)
+        - Bridge spawns Claude Code in a PTY with --permission-mode
+        - Parser detects a prompt from raw PTY output; policy evaluates it
+        - auto_approve → Enter after 500ms | deny → Escape after 500ms |
+          require_review → pause in WAITING_FOR_PERMISSION and surface it
+        - Orchestrator polls /v2/session/peek or /v2/session/output
+        - POST /v2/session/respond with { project, permissionId, decision }
+        - POST /v2/session/end, optionally exporting the transcript
+    - name: Session monitoring
+      description: One-call operational snapshot — state, tail, detected test
+        results, inputReady, pendingPermission — with no cursor management.
+      priority: must-have
+    - name: Attach to an existing session
+      description: attachIfExists on start returns the live session and its cursor
+        instead of 409, so a UI can always-call start without special-casing.
+      priority: must-have
+    - name: Read what the agent wrote
+      description: >-
+        GET /v2/session/file returns raw project-relative file bytes. Exists
+        because /v2/session/output is a rendered TUI paint stream that mangles
+        markdown; reading the agent's own file is the robust path.
+      priority: must-have
+    - name: Mid-session policy update
+      description: POST /v2/session/policy replaces the approval envelope while
+        the session is running.
+      priority: nice-to-have
+    - name: Embedded tools extension lifecycle
+      description: init before listen, dispatch /tools/*, merge health, await
+        close on shutdown — with failure isolation at every step.
+      priority: nice-to-have
+    - name: Sidecar process visibility
+      description: GET /api/processes for external orchestrators to poll active
+        and recently completed sessions with no registration.
+      priority: nice-to-have
+
+  # Scope decisions.
+  scope:
+    # Shipped and covered by tests as of v1.9.1. Recorded as the delivered v1
+    # surface, not as pending work.
+    v1:
+      - PTY broker with structured permission review (/v2/session/*)
+      - Approval envelope policy engine, fail-closed by default
+      - Event log with cursor reads and long-poll
+      - peek snapshot with test-result detection (vitest, pytest, jest, mocha)
+      - Self-describing /v2/api-docs
+      - Bearer-token auth on everything except /health
+      - Project file listing and scoped file read with shared path-safety
+      - Single-tenant tools extension slot under /tools/*
+      - launchd + systemd deployment, boot-time spawn-helper self-heal
+      - >-
+        Health reporting — claude version, bridge version, ptyMode,
+        ptyAvailable, ptySpawnable, active session count
+
+    accommodate:
+      - Additional test-runner formats in peek's detector
+      - Additional permission prompt shapes as Claude Code's TUI evolves
+
+    later:
+      # Named as v2 concerns in docs/tools-extension.md "Deferred for v2".
+      - Multiple tools extensions mounted under distinct prefixes
+      - Configurable /health key for the extension block
+      - Per-route auth opt-out for extensions (e.g. a public /tools/health)
+      - Pre-stripped URLs passed to handleToolsRoute
+
+    never:
+      # Every entry below is stated in README "ClawBridge is *not* the right tool
+      # if" — these are the owner's own documented boundaries, not inferences.
+      - item: General-purpose reverse proxy to multiple host-side services
+        rationale: >-
+          The bridge mounts at most one embedded extension and proxies to
+          nothing. Fanning out to several host services is Caddy/Traefik/nginx
+          work. Blurring this turns a broker into infrastructure it is not.
+      - item: Running Claude Code inside a container
+        rationale: A different deployment model (sandboxed Claude Code) that this
+          product does not address.
+      - item: Network-level isolation between orchestrator and host
+        rationale: >-
+          The safety model is structured permission review of one CLI tool's
+          actions, plus bearer-token auth. It is deliberately not a security
+          boundary, and must not be sold as one.
+      - item: Replacing direct CLI use where the operator already has shell/SSH
+        rationale: If you can run `claude` yourself, the bridge adds cost and no
+          capability.
+      - item: Using Claude subscription (Pro/Max) OAuth tokens as the auth path
+        rationale: >-
+          Anthropic banned subscription-token use in third-party tools in Jan
+          2026 (token arbitrage). ClawBridge authenticates via `claude
+          setup-token`, the explicitly permitted developer path, and invokes
+          Claude Code as a tool rather than substituting for its harness. This
+          is a compliance boundary, not a preference — see README.
+          [ASSUMPTION | HIGH impact] Recorded here as a hard scope boundary
+          because the README states it as a position; confirm it should bind
+          future work as written.
+
+  # Product identity.
+  product_identity:
+    name: "ClawBridge"
+    personality: null     # Brand personality, mood (null for internal tools)
+    visual_preferences: null  # Look/feel preferences (null for non-visual products)
+
+  # Long-lived Node.js HTTP daemon on the host (macOS via launchd, Linux via
+  # systemd). Published to npm as @jason-vaughan/clawbridge. Requires Node >=18
+  # (tested on v22) and a Claude Code CLI installed on the same host.
+  platform: host-daemon (Node.js; macOS + Linux)
+
+  # Non-functional requirements, calibrated to risk.
+  # [ASSUMPTION | MED impact] These are the operating characteristics implied by
+  # the code and docs (timeouts, single-session rule, KeepAlive). The owner has
+  # not written explicit targets; nothing here is a measured SLO.
+  nonfunctional:
+    performance: >-
+      Interactive-loop latency, not throughput. Deliberate 500ms delay before
+      any auto-approve/deny keystroke so the TUI menu finishes rendering —
+      correctness beats speed here. peek is designed to be polled frequently and
+      cheaply; output supports long-poll via waitMs to avoid busy-waiting.
+    scalability: >-
+      One active (non-terminal) session per project; concurrency is the number of
+      distinct projects, bounded by host CPU/RAM since each session is a real
+      Claude Code process. Not designed to be horizontally scaled — it is a
+      single host-local daemon by construction.
+    uptime: >-
+      Expected always-on under launchd KeepAlive / systemd Restart=always. Event
+      log and session state are in-memory, so a restart loses live sessions and
+      makes /v2/session/transcript unavailable for prior ones (hence the
+      recommendation to use includeTranscript on end). No persistence layer.
+    cost_constraints: >-
+      No infrastructure cost — runs on hardware the operator already owns. The
+      real cost is Claude API usage driven by whatever sessions the orchestrator
+      starts; the bridge neither meters nor caps it.
+
+  regulatory: []          # None applicable — no regulated data class handled.
+  cost_estimates:
+    - item: Hosting / infrastructure
+      estimated_monthly_cost: "$0"
+      notes: Self-hosted daemon on the operator's own machine.
+    - item: Claude API usage by spawned sessions
+      estimated_monthly_cost: "usage-dependent"
+      notes: >-
+        Billed to the operator's own API credentials via `claude setup-token`.
+        Unbounded by design — the bridge does not rate-limit or budget sessions.
+        [ASSUMPTION | LOW impact] Flagged as a known gap, not a defect; a
+        cost-guard is not currently in scope.
+
+# =============================================================================
+# TECHNICAL DECISIONS
+# =============================================================================
+# Every entry includes rationale.
+# Each: { decision, rationale, alternatives_considered, date }
+
+# Reconstructed from CHANGELOG.md, the maintainer guide, and the code. Dates are
+# the release that shipped the decision where one is identifiable; decisions that
+# predate the changelog are dated 2026-04-16 (the earliest recorded release).
+technical_decisions:
+  architecture:
+    - decision: Drive Claude Code through a real PTY and parse its TUI, rather
+        than using headless/print mode.
+      rationale: >-
+        Headless mode gives no per-permission hook. Supervised approval — the
+        product's entire value — requires seeing each prompt as it is raised.
+      alternatives_considered:
+        - "claude -p (headless) — no permission review surface"
+        - "Wrapping the SDK — not the same tool the operator runs interactively"
+      date: 2026-04-16
+
+    - decision: Bias the permission parser toward false negatives.
+      rationale: >-
+        A missed prompt stalls the session and the caller notices. A spurious
+        detection injects a keystroke into the wrong context and silently
+        corrupts. Root cause of bugs #5, #6 and #10 was overeager matching.
+      alternatives_considered:
+        - Aggressive matching for higher recall — rejected on failure asymmetry
+      date: 2026-04-16
+
+    - decision: Fail-closed policy evaluation — specific rule, then risk default,
+        then require_review. No envelope means everything requires review.
+      rationale: Absent configuration must never widen authority.
+      alternatives_considered:
+        - Permissive default for convenience — rejected; the safety mechanism
+          cannot have a convenient failure mode
+      date: 2026-04-16
+
+    - decision: In-memory event log and session state; no persistence layer.
+      rationale: >-
+        Sessions are ephemeral and host-local; a database would add operational
+        surface for state that is worthless after the process dies.
+      alternatives_considered:
+        - Disk-backed log — deferred; the accepted cost is that a restart drops
+          live sessions and makes /v2/session/transcript unavailable afterward,
+          which is why includeTranscript on end is the recommended path
+      date: 2026-04-16
+
+    - decision: One active (non-terminal) session per project; starting over a
+        terminal session overwrites it.
+      rationale: Keeps addressing simple — callers key on `project`, not on
+        session ids they would have to track.
+      alternatives_considered:
+        - Multiple concurrent sessions per project — rejected as needless
+          ambiguity for the driving orchestrator
+      date: 2026-04-16
+
+    - decision: Single-tenant in-process extension slot at /tools/*, replacing
+        vendored tools-router.js.
+      rationale: >-
+        Vendoring coupled the public bridge to one consumer (RentalClaw). A
+        documented interface decouples them and lets consumers track npm.
+      alternatives_considered:
+        - Multi-extension mounting — deferred to v2
+        - Reverse-proxying to external services — explicitly rejected as scope
+      date: 2026-04-16
+
+    - decision: Extension failure is isolated — init/route/health/close errors
+        are logged and the broker keeps running.
+      rationale: The broker is the product; an optional add-on must never be able
+        to take it down.
+      alternatives_considered:
+        - Fail-fast on extension init — rejected; degrades the primary capability
+          for a secondary one
+      date: 2026-04-16
+
+    - decision: Extract path validation into bridge/v2/path-safety.js, shared by
+        v1 /projects/* and v2 /v2/session/file.
+      rationale: Traversal/realpath/NUL rules must not drift between two copies.
+        Security code wants one implementation.
+      alternatives_considered:
+        - Leaving the v2 route with its own check — rejected on drift risk
+      date: 2026-06-20
+
+  technology:
+    - decision: Node.js stdlib `node:http` with hand-rolled routing; no web
+        framework.
+      rationale: >-
+        Small, fixed route surface. Keeps the dependency tree to a single runtime
+        dependency, which matters for a package operators install on their own
+        machines and for a process that must not fail to boot.
+      alternatives_considered: [Express, Fastify]
+      date: 2026-04-16
+
+    - decision: node-pty as the only runtime dependency, with a child_process
+        pipes fallback.
+      rationale: A real PTY is required to drive a TUI. The fallback keeps the
+        process alive but cannot drive Claude Code — so it is surfaced loudly via
+        ptyMode rather than failing silently.
+      alternatives_considered: [child_process only — insufficient for TUI]
+      date: 2026-04-16
+
+    - decision: CommonJS, not ESM.
+      rationale: Matches the existing codebase and keeps `require` of a
+        consumer-supplied extension module straightforward.
+      alternatives_considered: [ESM]
+      date: 2026-04-16
+
+    - decision: vitest as the test runner, with live E2E gated behind RUN_E2E=1.
+      rationale: >-
+        E2E spawns real Claude Code sessions — too slow and too
+        environment-dependent for the default run, but required before shipping
+        parser or timing changes.
+      alternatives_considered: [jest, node:test]
+      date: 2026-04-16
+
+  data_model:
+    - decision: No persistent data model. Sessions, events, and permissions are
+        in-memory structures; enums live in bridge/v2/types.js.
+      rationale: >-
+        Nothing outlives the process by design. The closest thing to a schema is
+        the event-kind table and the session state machine, both documented in
+        the maintainer guide.
+      alternatives_considered: [SQLite-backed session history]
+      date: 2026-04-16
+
+  integrations:
+    - decision: Claude Code CLI is a foreign API — an interface this project does
+        not own and cannot version-pin behaviorally.
+      rationale: >-
+        Prompt wording, menu format, keystroke semantics and idle behavior can
+        all change upstream. Six named fragility areas in the maintainer guide.
+        Any chunk touching this surface carries a Foreign API annotation.
+      alternatives_considered: []
+      date: 2026-04-16
+
+    - decision: Authenticate via `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN),
+        never subscription credentials, and never keychain auth.
+      rationale: >-
+        Keychain auth is GUI-session-scoped and fails under launchd/SSH.
+        Subscription-token use in third-party tools was banned by Anthropic in
+        Jan 2026; setup-token is the explicitly permitted developer path. Both a
+        functional and a compliance constraint.
+      alternatives_considered: [keychain auth — broken headless]
+      date: 2026-04-16
+
+    - decision: Optional /prawduct/run endpoint exposing governance lifecycle
+        commands when a prawduct install is present on the host.
+      rationale: Convenience for orchestrators already driving governed repos;
+        strictly optional and absent otherwise.
+      alternatives_considered: []
+      date: 2026-04-16
+
+  operational:
+    - decision: Process-manager-supervised daemon (launchd KeepAlive on macOS,
+        systemd Restart=always on Linux).
+      rationale: Unattended service; must come back without a human.
+      alternatives_considered: [manual start, pm2]
+      date: 2026-04-16
+
+    - decision: Self-heal node-pty's spawn-helper exec bit at module load, not
+        only in postinstall.
+      rationale: >-
+        postinstall runs once at install time and misses later permission resets
+        (filesystem sync, `cp` without -p). Runs before any SessionManager is
+        constructed so the first session start cannot fail with posix_spawnp.
+      alternatives_considered:
+        - postinstall only — proved insufficient in #16
+      date: 2026-06-20
+
+    - decision: Report the bridge package's own version on /health alongside the
+        Claude binary version.
+      rationale: An `npm update`-then-restart deploy on a semver-ranged host had
+        no way to verify which build was actually serving.
+      alternatives_considered: []
+      date: 2026-06-20
+
+    - decision: Deploy incrementally (scp changed files, restart), keep the prior
+        copy of any changed file for rollback.
+      rationale: Recorded as rollback norms 3 and 5 in the maintainer guide.
+      alternatives_considered: [whole-directory replacement]
+      date: 2026-04-16
+
+# =============================================================================
+# DESIGN DECISIONS
+# =============================================================================
+# UX, IA, and design decisions. Some fields (like error_handling_approach) apply
+# to all products; others (like visual_direction) only apply to products with a UI.
+# Each: { decision, rationale, date }
+
+design_decisions:
+  information_architecture:
+    - decision: Namespace the API by surface — /v2/session/* for the broker,
+        /health and /api/processes for infrastructure, /projects/* for files,
+        /tools/* reserved for the single extension.
+      rationale: Extensions may not claim /v2, /api/* or other bridge-reserved
+        namespaces, so the prefix alone tells a reader who owns a route.
+      date: 2026-04-16
+    - decision: /v2/api-docs is the self-describing entry point and is treated as
+        part of the contract, not as generated documentation.
+      rationale: >-
+        The primary consumer is a machine. An orchestrator should be able to
+        integrate without reading source; README prose is corrected to match
+        api-docs field names when they diverge (done in 1.6.0).
+      date: 2026-04-16
+
+  interaction_patterns:
+    - decision: Polling over push. Cursor-based /v2/session/output with optional
+        long-poll (waitMs), plus a cursorless /v2/session/peek snapshot.
+      rationale: >-
+        Callers are containerized orchestrators behind host.docker.internal.
+        Polling needs no inbound connection to the container and no reconnect
+        logic; long-poll covers the latency cost. peek exists because most
+        callers want "what is happening now" far more often than a full event
+        replay.
+      date: 2026-04-16
+    - decision: Surface readiness as explicit first-class fields rather than
+        making callers infer it — inputReady, pendingPermission, testResult,
+        attached, consumed.
+      rationale: >-
+        Everything the caller must branch on should be a field, because the
+        alternative is parsing a rendered TUI stream. This is the same reasoning
+        that produced /v2/session/file in 1.9.0.
+      date: 2026-04-16
+    - decision: Additive, backward-compatible evolution — new capability arrives
+        as an optional field defaulting to today's behavior (permissionMode,
+        attachIfExists, consume).
+      rationale: Deployments in the field cannot be updated in lockstep by an
+        author who cannot see them.
+      date: 2026-05-26
+
+  # Not relevant — no human-facing interface. Every surface is a machine API;
+  # operator-facing output is stdout logs and JSON. Recorded as a decision so
+  # the absence is deliberate rather than an oversight.
+  accessibility_approach: "(not relevant — no human interface; API-only product)"
+
+  error_handling_approach: >-
+    Three distinct layers, deliberately different.
+    (1) HTTP: status code carries the semantics, body is { error: "<message>" }.
+    Internal codes (SESSION_EXISTS, and the codes mapped to 404/409/410) drive
+    status selection but are NOT currently echoed in the response body — a
+    machine consumer branches on status plus prose. See the api-error-model gap
+    in open_questions.
+    (2) Session: failures become structured `error` events on the event log
+    ({ code, message, details }) AND a bridge-stdout log line, after 1.6.0 found
+    that event-log-only reporting left unattended operators blind.
+    (3) Degradation: an optional subsystem failing must not take the broker down
+    — a failing tools extension is logged and disabled; node-pty failing to load
+    falls back to pipes but announces it loudly via ptyMode, because a silent
+    fallback that cannot drive the TUI is worse than a hard failure.
+    Fail-closed governs the permission path specifically: any error or unmatched
+    case resolves to require_review, never to approval.
+  # API decisions — populate when classification.structural.exposes_programmatic_interface is set.
+  # These record the DECISION (including a deliberate "none — internal-only"), not a mandate to
+  # version. A deferral must be dated and carry a revisit trigger. See the api-contract artifact.
+  # api_versioning_approach: { scheme, deprecation_policy, stability_tiers,
+  #                            status: active|deferred, rationale, revisit_trigger (if deferred), date }
+  api_versioning_approach:
+    scheme: >-
+      URI-path major versioning for the broker surface (/v2/*), with v1 routes
+      (/health, /projects, /api/processes, /circuit-breaker) coexisting
+      unversioned at the root. Package semver on npm is the second, finer
+      channel: additive fields ship as minor, fixes as patch, and CHANGELOG.md
+      records the user-visible reason per release.
+    deprecation_policy: >-
+      RATIFIED 2026-08-02, retroactive to 1.5.0. Changes to /v2/* and to the
+      tools-extension module interface are additive and backward-compatible; new
+      capability ships as an optional field or export whose default preserves
+      existing behavior; removing or narrowing either surface requires a new
+      path-major version, never a minor or patch. Owner-ratified from candidate
+      API-T5ST; born steady-state with zero violations to migrate (a sweep of
+      CHANGELOG.md 1.5.0-1.9.1 found no Removed, no Deprecated, no breaking
+      marker). Canonical text: .prawduct/artifacts/api-contract.md, section
+      Direction. Note the startup change in [Unreleased] is a deliberate,
+      recorded departure — see the build plan's Governing norms.
+    stability_tiers: >-
+      Implicit rather than declared: /v2/* and the tools-extension module
+      interface behave as stable contracts; docs/tools-extension.md names its own
+      v1 non-goals and v2 deferrals, which is the closest thing to a declared
+      tier today.
+    status: active
+    rationale: >-
+      Published on npm with third-party consumers the author cannot see or fix,
+      so a breaking change is unrecoverable from this side. Path versioning made
+      the v1→v2 broker rewrite deployable without breaking existing callers, and
+      coexistence is covered by tests (coexistence.test.js).
+    date: 2026-04-16
+
+  # api_error_model_approach: { envelope (e.g. RFC-7807/problem+json), codes, status, rationale, date }
+  api_error_model_approach:
+    envelope: '{ "error": "<human-readable message>" }'
+    codes: >-
+      HTTP status carries the machine-readable semantics: 400 validation, 404 no
+      such session/project/permission, 409 conflict (SESSION_EXISTS, wrong
+      permission id), 410 gone (session terminal), 500 internal. Internal error
+      codes exist in the code and select the status, but are not surfaced in the
+      body.
+    status: active
+    rationale: >-
+      Recorded as the CURRENT state, honestly. It is adequate for the existing
+      first-party consumers and predates any deliberate error-model design. It
+      is not RFC-7807 and does not give a machine consumer a stable symbol to
+      branch on — see the api-error-model entry in open_questions. Recording the
+      decision is not the same as endorsing it.
+    date: 2026-04-16
+
+  observability_approach: >-
+    Two audiences, two channels.
+    For the orchestrator: the append-only event log (text | lifecycle |
+    permission | decision | error) is the machine-readable signal, read by cursor
+    with long-poll, plus /v2/session/peek for a snapshot and /api/processes for
+    fleet-level polling with no registration required.
+    For the host operator: /health is the liveness and capability probe, and it
+    deliberately distinguishes states that look alike — ptyAvailable (binding
+    loaded) vs ptySpawnable (helper exists AND is executable, re-checked per
+    request), ptyMode (pty vs pipes-fallback), claude version vs bridge version.
+    That distinction exists because #16 was masked for a whole release by a
+    health check that reported "up" while every session was doomed.
+    Correlation context: sessions are keyed by project and sessionId; permissions
+    by permissionId; events by cursor position.
+    Not implemented: metrics, traces, alerting, log levels, or structured
+    (JSON) stdout logging — it is console output, and that is the accepted floor
+    for a single-host daemon.
+    KNOWN GAP: no sensitive-data filtering anywhere. Transcripts and text events
+    carry raw PTY output verbatim, so any secret Claude Code prints is stored in
+    memory and returned to whoever holds the bearer token. See open_questions.
+
+  infrastructure_dependencies: >-
+    No database, queue, cache, or cloud service. Three real dependencies:
+    (1) Claude Code CLI — a FOREIGN API. Located via CLAUDE_BIN, spawned in a
+    PTY. Its TUI is the contract, and it is the single largest source of
+    breakage. Mock boundary: unit tests drive the parser with recorded PTY
+    output; only e2e.test.js touches the real binary, gated behind RUN_E2E=1
+    because it spawns live sessions. Rollback norm 8 makes one live E2E smoke
+    run mandatory for any parser/ANSI/trust-buffer/PTY-timing change — unit
+    tests are explicitly declared insufficient there, proven across nine E2E
+    rounds.
+    (2) node-pty — native dependency with prebuilt binaries; the spawn-helper
+    exec bit is a known silent-failure mode, self-healed at load and observable
+    via ptySpawnable.
+    (3) Host filesystem — PROJECTS_DIR is read for file listing/serving and is
+    the working directory for sessions. All access goes through
+    bridge/v2/path-safety.js.
+    Unavailability behavior: a missing/broken node-pty degrades loudly to pipes
+    mode (sessions will fail, but the process announces why); a missing tools
+    extension module is a startup warning and the broker runs without it; a
+    missing Claude binary surfaces as a session spawn failure logged to stdout
+    with the exit code and last output.
+
+  visual_direction: null   # Not applicable — no visual surface.
+
+# =============================================================================
+# OPEN QUESTIONS
+# =============================================================================
+# Unresolved decisions. Normal during discovery, shrinks toward zero
+# before artifact generation.
+# Each:
+#   question: string
+#   blocking: string (what can't proceed)
+#   waiting_on: "user" | "research"
+#   priority: high | medium | low
+
+# Genuine gaps surfaced by reconciliation — things the existing docs do not
+# answer, not prose copied out of them. None of these block building; each is an
+# owner decision that discovery is not entitled to make on its own.
+open_questions:
+  - question: >-
+      Should the HTTP error body carry a stable machine-readable code, or is
+      status + prose the deliberate contract? Internal codes (SESSION_EXISTS
+      etc.) already exist and select the status but are dropped before the
+      response, so a third-party consumer has nothing stable to branch on and is
+      one message-wording change away from breaking.
+    blocking: >-
+      Nothing today. It becomes expensive to change later — adding a field is
+      additive and safe, but consumers that have already string-matched on prose
+      make any future rewording breaking.
+    waiting_on: user
+    priority: medium
+
+  # Resolved 2026-08-02, kept out of this list per "shrinks toward zero"; the
+  # decisions and their reasoning are in .prawduct/change-log.md and the artifacts:
+  #   * API deprecation policy  → RATIFIED as a norm (api-contract.md § Direction)
+  #   * Transcript filtering    → ACCEPTED and documented (security-model.md G2)
+  #   * Backlog backend         → GitHub Issues DECIDED, cutover DEFERRED. The
+  #     scalar is still unset, but the blocker is gone: SEC-UTP4 and EXP-9WQ2
+  #     both shipped 2026-08-02, so the writeups document closed bugs. Remaining
+  #     precondition is release, not merge — npm still serves 1.9.1. Until the
+  #     cutover runs, backlog.md is the live backlog.
+  #   * Auth fails open         → fix decided, option (a); tracked as SEC-UTP4
+
+  - question: >-
+      Is losing live sessions and prior-session transcripts on bridge restart an
+      accepted cost, or a defect to fix?
+    blocking: Nothing — but it decides whether persistence ever enters scope.
+    waiting_on: user
+    priority: low
+    # Deliberately left OPEN on 2026-08-02 rather than resolved. The observation
+    # that keeps it open: docs/bridge-v2-maintainer-guide.md works around the
+    # behavior — recommending includeTranscript on end instead of
+    # /v2/session/transcript — without ever calling it either accepted or a
+    # defect. An unexamined workaround is the same failure mode as the transcript
+    # filtering gap, one layer out: the mitigation reads as a decision until
+    # someone checks whether a decision was ever made.
+
+# =============================================================================
+# USER EXPERTISE PROFILE
+# =============================================================================
+# Inferred from conversation signals, never self-assessed.
+# Drives vocabulary, explanation depth, and involvement calibration.
+
+# Inferred from the repo's own artifacts, since this session reconciled rather
+# than interviewed. Signals are citable, not impressions.
+user_expertise:
+  product_thinking: advanced
+  technical_depth: advanced
+  design_sensibility: not-applicable   # no visual surface in this product
+  domain_knowledge: advanced
+  operational_awareness: advanced
+  evidence:
+    - dimension: product_thinking
+      signal: >-
+        The README carries a "ClawBridge is *not* the right tool if" section that
+        actively routes users away to a reverse proxy or to direct CLI use.
+        Writing down what your product is bad at is a mature scope instinct.
+      inferred_from: README.md "When to Use ClawBridge"
+    - dimension: product_thinking
+      signal: A changelog entry classified as a "README scope refresh" — treating
+        a misleading description as a defect worth a release note.
+      inferred_from: CHANGELOG.md 1.6.0 Changed
+    - dimension: technical_depth
+      signal: >-
+        Identified that cursor-right (\x1b[1C) must strip to a SPACE rather than
+        empty because Claude Code uses it as a token separator, and recorded the
+        reasoning as a named lesson.
+      inferred_from: maintainer guide, Bug #11
+    - dimension: technical_depth
+      signal: Extracted path validation to one shared module explicitly so v1 and
+        v2 traversal rules could not drift.
+      inferred_from: CHANGELOG.md 1.9.0 Changed
+    - dimension: domain_knowledge
+      signal: >-
+        Diagnosed that /v2/session/output is a rendered TUI paint stream, spiked
+        it against a live bridge, and concluded that reconstructing structure
+        would require a full VT emulator — then chose to read the agent's own
+        file instead.
+      inferred_from: CHANGELOG.md 1.9.0 Added
+    - dimension: domain_knowledge
+      signal: Tracks and reasons about Anthropic's third-party token policy and
+        positions the product against it explicitly.
+      inferred_from: README.md policy note
+    - dimension: operational_awareness
+      signal: >-
+        Distinguished ptyAvailable from ptySpawnable after realising the former
+        masked a total-failure mode, and made the new check per-request so it
+        reflects on-disk state rather than boot state.
+      inferred_from: CHANGELOG.md 1.8.0
+    - dimension: operational_awareness
+      signal: >-
+        Wrote eight numbered rollback norms including "unit tests are necessary
+        but not sufficient" for parser changes, justified by nine rounds of E2E
+        evidence.
+      inferred_from: maintainer guide "Rollback norms"
+    - dimension: operational_awareness
+      signal: Treated silent logging as the defect ("left operators blind") and
+        fixed the observability rather than only the crash.
+      inferred_from: CHANGELOG.md 1.6.0 Fixed
+
+# =============================================================================
+# BUILD PREFERENCES
+# =============================================================================
+# Developer preferences captured during discovery (testing approach, code style,
+# tooling). Optional — only when the user expresses preferences.
+
+build_preferences:
+  file_path: artifacts/project-preferences.md
+  last_updated: 2026-08-02
+  source: inferred            # discovery | inferred | iteration
+                              # Read off the existing codebase and docs during
+                              # reconciliation; not stated by the owner.
+
+# =============================================================================
+# HEALTH CHECK
+# =============================================================================
+# Tracks periodic health check state. Health checks are triggered by
+# accumulating staleness signals, not by a fixed cadence.
+
+health_check:
+  last_full_check: null
+  last_check_findings: null
+
+# =============================================================================
+# ARTIFACT MANIFEST
+# =============================================================================
+# Tracks generated artifacts and their relationships.
+
+artifact_manifest:
+  # Each:
+  #   name: string
+  #   file_path: string (relative to project root)
+  #   version: integer
+  #   depends_on: [artifact names]
+  # All authored 2026-08-02 during discovery reconciliation. Several are
+  # deliberately thin pointers at docs/ rather than second copies of it — the
+  # existing maintainer guide and tools-extension contract stay canonical.
+  artifacts:
+    - name: project-preferences
+      file_path: .prawduct/artifacts/project-preferences.md
+      version: 1
+      depends_on: []
+    - name: boundary-patterns
+      file_path: .prawduct/artifacts/boundary-patterns.md
+      version: 1
+      depends_on: []
+    - name: architecture
+      file_path: .prawduct/artifacts/architecture.md
+      version: 1
+      depends_on: [boundary-patterns]
+    - name: data-model
+      file_path: .prawduct/artifacts/data-model.md
+      version: 1
+      depends_on: [architecture]
+    - name: api-contract
+      file_path: .prawduct/artifacts/api-contract.md
+      version: 1
+      depends_on: [boundary-patterns, data-model]
+    - name: security-model
+      file_path: .prawduct/artifacts/security-model.md
+      version: 1
+      depends_on: [architecture, api-contract]
+    - name: nonfunctional-requirements
+      file_path: .prawduct/artifacts/nonfunctional-requirements.md
+      version: 1
+      depends_on: [architecture]
+    - name: operational-spec
+      file_path: .prawduct/artifacts/operational-spec.md
+      version: 1
+      depends_on: [architecture, observability-strategy]
+    - name: observability-strategy
+      file_path: .prawduct/artifacts/observability-strategy.md
+      version: 1
+      depends_on: [architecture, data-model]
+
+# =============================================================================
+# BUILD STATE
+# =============================================================================
+# Runtime tracking during building. Updated after each chunk.
+
+build_state:
+  source_root: bridge/        # server.js + the v2/ broker modules
+
+# =============================================================================
+# ACTIVE BUILD PLAN (optional)
+# =============================================================================
+# Names the in-progress build plan when it isn't the conventional
+# `artifacts/build-plan.md` — scope-named plans (`artifacts/build-plan-<scope>.md`)
+# keep release-pending plans distinct under gitflow. The value is a path
+# relative to `.prawduct/` (a repo-relative `.prawduct/...` spelling is
+# tolerated). The Critic gate, plan-aware mode inference, regen-views, and
+# chunk-ref verification all resolve the plan through this pointer; unset →
+# `artifacts/build-plan.md`. A pointer to a file that doesn't exist means
+# governance sees NO active plan — the session briefing warns loudly until
+# it's fixed (STH-5P2W).
+#
+# active_build_plan: artifacts/build-plan-my-scope.md
+
+# =============================================================================
+# BUILD-PLAN REF ROOT (opt-in, unset by default)
+# =============================================================================
+# A second root that this repo's build-plan file refs may be written relative
+# to. `verify-chunk-refs` tries the repo root first, then this.
+#
+# Set it when your plans name files the way they read from INSIDE a
+# subdirectory rather than from the repo root — e.g. a repo that ships a
+# plugin, an extension, or a bundled tool, whose plans say `lib/gates.py`
+# meaning `plugin/lib/gates.py`. Without the declaration each such ref reports
+# as a missing deliverable.
+#
+# DECLARED, never inferred: the verifier will not guess this from your layout,
+# because "there is a directory that looks like a plugin root" is an ordinary
+# layout rather than a statement of intent, and guessing would silently resolve
+# a genuinely missing deliverable against an unrelated directory. Unset (the
+# default) means the repo root is the only root. A value that escapes the repo,
+# doesn't exist, or isn't a directory is ignored.
+#
+# build_plan_ref_root: plugin
+
+# =============================================================================
+# RISK SURFACES (opt-in)
+# =============================================================================
+# The paths where a missed defect costs your product the most — auth, payments,
+# migrations, a public API contract, whatever yours are. Two consumers read the
+# list: `prawduct-hook classify-diff-risk` (the review `tier`) and the Critic's
+# roster derivation, which gives a diff touching any of them the deeper
+# three-reviewer review at any size.
+#
+# **Declaring this opts you into the risk-keyed roster.** Leave it unset and you
+# are never reviewed less than before: prawduct's framework-shaped defaults
+# (`skills/`, `lib/gates*`, `bin/*hook*`, plus any contract paths you list in
+# boundary-patterns.md) still escalate, and below those the older file-count rule
+# stands (a coordinator at 5+ changed files). Declaring your own surfaces is what
+# raises the size threshold to 12 judgeable files — prawduct will not review your
+# high-risk changes more cheaply just because they are small.
+#
+# Pattern semantics: a trailing `/` is a directory prefix; anything else is an
+# fnmatch glob (a plain path with no metacharacters is an exact match). An
+# explicit empty list (`risk_surfaces: []`) is a deliberate "this product has
+# no risk surfaces" opt-out and turns the tier check off.
+#
+# Declared deliberately. These are the paths where a defect does not merely
+# misbehave — it auto-approves a destructive action on the operator's host, or
+# lets a caller read outside the project root. classification.risk_profile rates
+# the product medium overall precisely BECAUSE this list carries the high-risk
+# path; a two-line diff to the parser must not be reviewed as a two-line diff.
+risk_surfaces:
+  - bridge/v2/permission-parser.js   # prompt detection + ANSI normalization
+  - bridge/v2/policy.js              # envelope evaluation → the approve/deny call
+  - bridge/v2/path-safety.js         # traversal/realpath/NUL guard for file reads
+  - bridge/v2/sessions.js            # PTY keystroke injection, trust prompt, timers
+  - bridge/server.js                 # bearer auth, routing, extension loading
+
+# =============================================================================
+# DERIVED VIEWS (enabled by default, v1.4+)
+# =============================================================================
+# When true (default), three derived views are regenerated from change-log.md
+# tagged entries (see that file for the tag format):
+#   * build-plan `## Status` block (checkboxes from `status=shipped` tags)
+#   * `.prawduct/release-notes.md` (from `release=` tags)
+#   * `scope_rollups:` block below (from `scope=` tags)
+# Run `prawduct-hook regen-views` to apply.
+# Set to `false` to opt out — Status becomes hand-edited and the other views
+# are not produced.
+
+# =============================================================================
+# NORM REGISTRY
+# =============================================================================
+# Owner-ratified 2026-08-02. One norm ratified from candidate API-T5ST (additive,
+# backward-compatible public contract changes; retroactive to 1.5.0, steady-state,
+# zero violations to migrate). Home: .prawduct/artifacts/api-contract.md § Direction,
+# with a pointer row in project-preferences.md's Enforcement table.
+norm_registry_ratified: 2026-08-02 — 1 norm ratified (API-T5ST, api-contract § Direction)
+
+views_enabled: true
+
+# Scope rollups — derived view, populated by regen-views when views_enabled is
+# true. Lists chunks (and releases) shipped under each scope rollup tag.
+# Do not hand-edit — overwritten on next regen.
+scope_rollups: {}
+
+# =============================================================================
+# COVERAGE EVIDENCE (opt-in, v1.4+)
+# =============================================================================
+# When true, the Critic requires every changed file the verifier can judge to
+# appear in `.test-evidence.json`'s `changes_referenced` list (files it can't
+# judge — non-code, symbol-less, deleted — are declared in `changes_unjudged`
+# and reported, not gated) and scales severity language to the declared
+# `coverage_level` (`referenced` floor vs. `executed` real). The reference
+# verifier at `bin/test-reference-verify` emits the floor; products with
+# non-trivial coverage concerns should plug in a stronger verifier. See
+# `/prawduct:methodology building` "Coverage Evidence".
+# Default off in v1.4 — schema is checked but content is not enforced.
+
+coverage_required: false
+
+# =============================================================================
+# TEST EXECUTION (optional, gate-soundness)
+# =============================================================================
+# `prawduct-hook test-evidence record` defaults to running
+# `sys.executable -m pytest` from the repo root and grepping a single `tests/`
+# dir. When the repo's real shape differs (uv/venv-managed interpreter, no
+# root pytest config, monorepo test trees), declare it — don't wrap it:
+#
+# test_command: uv run pytest --junit-xml={junit_xml} -q
+#   The canonical suite invocation (the exact command CI runs), shlex-split
+#   and run from the repo root. Must contain the `{junit_xml}` literal — the
+#   hook substitutes its report path there. Shell operators (&&, |, FOO=1)
+#   are not supported; point the command at a script for compound runs.
+#   Caveat: the value is read by a YAML-comment-aware scalar reader, so a
+#   literal `#` anywhere in the command truncates it — wrap such invocations
+#   in a script too.
+#
+# test_commands:
+#   - pipenv run pytest --junit-xml={junit_xml} -q
+#   - npm run test:ci -- --junit --outputFile={junit_xml}
+#   The multi-environment form (backend + web + mobile): one canonical
+#   invocation per environment, each run under the same rules as
+#   `test_command:` (shlex-split, mandatory `{junit_xml}`, `#` truncates);
+#   counts aggregate across all reports into ONE evidence record, and any
+#   launch failure or unparseable report fails the whole record. Declare it
+#   ONLY as this block-sequence-of-strings shape (flow style `[a, b]` and
+#   nested mappings are refused, not silently ignored). Mutually exclusive
+#   with `test_command:`. Ingest path: repeat `--from-junit` once per report.
+#
+# tests_dirs: engine/tests server/tests
+#   Whitespace-separated test trees for the coverage verifier (default:
+#   `tests`). One verifier run unions discovery across all of them.
+
+# Declared because the defaults do not fit this repo: the hook would otherwise
+# run `python -m pytest` and grep a `tests/` directory, neither of which exists
+# here. Verified 2026-08-02 — this exact invocation produced a parseable JUnit
+# report for all 565 tests across 22 files, 0 failures.
+test_command: npx vitest run --reporter=junit --outputFile={junit_xml}
+
+# Two trees: bridge/__tests__ covers the server, prawduct argv, project files
+# and the tools extension; bridge/v2/__tests__ covers the broker itself.
+tests_dirs: bridge/__tests__ bridge/v2/__tests__
+
+# =============================================================================
+# OPERATOR VERIFICATION (opt-in, v1.4+)
+# =============================================================================
+# When true, `/pr create` BLOCKS if `.prawduct/operator-verification.md`
+# has any entry with `**Status:** pending`. The queue records pre-merge
+# human-verification items for visual / live-integration changes that
+# automated tests can't fully cover. Drain via
+# `prawduct-hook verify-operator-verification <VRF-id>` or
+# override per-PR with `/pr create --accept-pending-verification "rationale"`.
+# Default off in v1.4 — opt-in by setting `operator_verification_required: true`.
+
+operator_verification_required: false
+
+# =============================================================================
+# API VERSIONING DECISION (advisory resolution fact, v2.2+)
+# =============================================================================
+# The committed "answer store" fact the `api-versioning` sync probe consults.
+# When the product exposes a programmatic interface (detected from the code —
+# web framework, OpenAPI/proto), the probe raises a dismissable, auto-resolving
+# session advisory until a versioning decision is recorded. Set this to the
+# decision summary (e.g. "uri-path-v1", "header", "none-internal-only",
+# "deferred:<revisit-trigger>") to resolve it — it mirrors
+# design_decisions.api_versioning_approach. Unset/absent = undecided. Recording
+# "none-internal-only" resolves it; this is NOT a mandate to version.
+#
+# Resolves the api-versioning advisory. Both halves are now decided: the SCHEME
+# (path-major /v2/* plus npm semver) shipped long ago, and the DEPRECATION POLICY
+# was owner-ratified 2026-08-02 as a steady-state norm, retroactive to 1.5.0.
+# Canonical text: .prawduct/artifacts/api-contract.md section Direction.
+api_versioning_decided: uri-path-v2-plus-npm-semver; deprecation policy ratified 2026-08-02 (API-T5ST, retroactive to 1.5.0)
+
+# =============================================================================
+# BACKLOG (structured backlog resolution conditions, v1.7+)
+# =============================================================================
+# The shared "answer store" (committed) that backlog sync probes consult to
+# know whether a migration nudge is still needed. The per-clone nag log lives
+# in .prawduct/.advisories.json; these committed facts auto-resolve a
+# teammate's advisory on next sync (see post-sync-advisory-spec.md §3.5, §7.1).
+#
+#   backlog_format_version  — set to 2 once `/backlog migrate` has converted
+#                             items to the [PFX-XXXX] structured format. Unset
+#                             (or absent) means legacy/unmigrated; the
+#                             `legacy-backlog-format` probe may nudge.
+#   backlog_prefixes        — OPTIONAL declared prefix vocabulary for /backlog
+#                             validation (e.g. [STH, CRT, SYN]). Emergent by
+#                             default; declare only if you want validation.
+#
+# Reserved for deferred backlog probes (v1.7 ships only legacy-backlog-format):
+#   backlog_external_imports — list of external backlog files already audited
+#                              via `/backlog import` (resolves external-detected).
+#   backlog_last_groomed_at  — ISO-8601 of the last /backlog list|pick (resolves
+#                              overdue-grooming).
+
+# Items were authored directly in the [PFX-XXXX] structured format during
+# onboarding — there is no legacy content to migrate.
+backlog_format_version: 2
+# backlog_prefixes: []
+# backlog_external_imports: []
+# backlog_last_groomed_at:
+
+# =============================================================================
+# CHANGE LOG
+# =============================================================================
+# Change log is in .prawduct/change-log.md (separate file to reduce merge conflicts).
+# See that file for format and instructions.
+
+# Distribution mode — set by /prawduct:migrate (v2.0.0 plugin cutover).
+# `plugin` tells the legacy file-sync hook to stand down (Chunk 8).
+distribution: plugin

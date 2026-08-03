@@ -90,6 +90,9 @@ async function init() {
   const distPath = process.env.TOOLS_DIST;
   if (!distPath) throw new Error('TOOLS_DIST env var required');
   const { buildApp } = await import(distPath);
+  // skipAuth: true delegates authentication entirely to the bridge. Only sound
+  // when the bridge is actually enforcing it — see the auth caveat in Non-goals.
+  // An extension guarding anything that matters should authenticate itself.
   _app = buildApp({ skipAuth: true });
   await _app.ready();
 }
@@ -130,7 +133,19 @@ This is ~30 non-blank lines. If your extension is a plain Express or raw-http ha
 
 - **Multiple extensions.** ClawBridge mounts at most one tools module. Multi-extension is a v2 concern.
 - **Custom prefix.** The mount prefix is always `/tools`. Extensions may not claim `/v2`, `/api/*`, or other bridge-reserved namespaces.
-- **Auth delegation mechanism.** ClawBridge's bearer-token auth runs **before** `handleToolsRoute` is invoked — for every request under `/tools/*` without exception. The extension receives only authenticated requests. Extensions **cannot** opt specific routes out of bridge-level auth in v1 (e.g., there is no public `/tools/health` equivalent to the bridge's unauthenticated `/health`). Extensions may implement additional in-extension auth on top if needed. Per-route auth opt-out is a v2 concern.
+- **Auth delegation mechanism.** ClawBridge's bearer-token auth runs **before** `handleToolsRoute` is invoked, for every request under `/tools/*`. Extensions **cannot** opt specific routes out of bridge-level auth in v1 (e.g., there is no public `/tools/health` equivalent to the bridge's unauthenticated `/health`). Extensions may implement additional in-extension auth on top if needed. Per-route auth opt-out is a v2 concern.
+
+  > **The extension does not receive only authenticated requests in every deployment.**
+  > Bridge-level auth is *ordered* before your handler, not *guaranteed to be enforcing*.
+  > When the bridge runs with `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` there is no token to
+  > check, and your handler is reachable by anyone who can reach the port — the bridge binds
+  > `0.0.0.0`. It is not a hypothetical: it is a supported, documented mode.
+  >
+  > If your extension guards anything that matters — writes, spend, personal data — do not
+  > treat "mounted behind ClawBridge" as an authentication boundary. Either implement
+  > in-extension auth, or refuse to serve when the bridge reports it. `GET /health` is
+  > unauthenticated by design and returns `auth.required: false` and `insecure: true`
+  > in that mode, so an extension can detect it from `init()` and decline to mount.
 - **Hot reload.** Changing `CLAWBRIDGE_TOOLS_MODULE` requires a bridge restart.
 
 ## Migration

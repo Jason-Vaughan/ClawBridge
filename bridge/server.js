@@ -43,6 +43,17 @@ if (fs.existsSync(envFile)) {
 
 const PORT = parseInt(process.env.BRIDGE_PORT || '3201', 10);
 const TOKEN = process.env.BRIDGE_TOKEN || '';
+
+// Running without a bearer token exposes every route — including session start,
+// which spawns an agent with shell access to this host — to anyone who can reach
+// the port, and the server binds 0.0.0.0. That is a deliberate choice or it is a
+// misconfiguration, and the two must not look alike, so it takes an explicit
+// opt-in and the process refuses to start otherwise.
+//
+// Exact-match on purpose: accepting '1'/'yes'/any-truthy makes a security control
+// easy to enable absent-mindedly, and this one should read as a decision in a
+// deployment audit.
+const ALLOW_UNAUTHENTICATED = process.env.CLAWBRIDGE_ALLOW_UNAUTHENTICATED === 'true';
 const HOME = process.env.HOME || '';
 const PROJECTS_DIR = process.env.PROJECTS_DIR || path.join(HOME, 'projects');
 const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
@@ -373,9 +384,21 @@ function json(res, status, data) {
  * @returns {boolean}
  */
 function checkAuth(req) {
-  if (!TOKEN) return true; // no token = open (dev mode)
+  // Fail closed. Reaching here without a token means the operator opted in via
+  // CLAWBRIDGE_ALLOW_UNAUTHENTICATED (startServer refuses to listen otherwise),
+  // so this returns the opt-in itself rather than a bare `true` — an unset token
+  // can never widen authority on its own, which is the rule policy.js already
+  // follows for approval envelopes.
+  if (!TOKEN) return ALLOW_UNAUTHENTICATED;
+
   const auth = req.headers['authorization'] || '';
-  return auth === `Bearer ${TOKEN}`;
+  const expected = Buffer.from(`Bearer ${TOKEN}`);
+  const presented = Buffer.from(auth);
+  // timingSafeEqual throws on unequal lengths, so the length check has to come
+  // first. It leaks only the header's length, which its own transmission already
+  // reveals; the byte comparison below is what must not leak a prefix match.
+  if (presented.length !== expected.length) return false;
+  return crypto.timingSafeEqual(presented, expected);
 }
 
 /**
@@ -585,7 +608,29 @@ function runCommand(cmd, args, options = {}) {
 // ── Routes ──
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+ try {
+  // `new URL` throws ERR_INVALID_URL on a request target like `//` or `///`,
+  // which a raw client can send even though curl normalizes it away. This is the
+  // FIRST statement of the handler — above auth, above every route — so an
+  // uncaught throw here is not a 400, it is process death: the callback is
+  // async, so it surfaces as an unhandledRejection and Node's default exits.
+  // Unauthenticated, one request, every in-memory PTY session gone.
+  //
+  // The whole handler is wrapped for the same reason. Guarding individual
+  // handlers was not enough: the `/exports` pair got its own try/catch and this
+  // line still sat outside it, which is the third time this exact shape has been
+  // found here. The boundary that needs the guard is the callback, not whichever
+  // statement most recently threw.
+  //
+  // This is a per-request boundary, not a process-level `uncaughtException`
+  // handler — see architecture.md, which rejects the latter. The request fails;
+  // the process keeps its invariants.
+  let url;
+  try {
+    url = new URL(req.url, `http://localhost:${PORT}`);
+  } catch {
+    return json(res, 400, { error: 'Invalid request target' });
+  }
   const method = req.method;
   const pathname = url.pathname;
 
@@ -599,7 +644,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Static exports serving (no auth — read-only, public)
+  //
+  // These two handlers run BEFORE the auth check, so they cannot live inside the
+  // main request try/catch further down (that sits after auth, and moving them
+  // there would make the routes private). They therefore carry their own, and
+  // they must: every fs call here is synchronous, and an uncaught throw in an
+  // http.createServer callback does not produce a 500 — it terminates the
+  // process, taking every in-memory PTY session with it. That is what made the
+  // `ext` ReferenceError a remote unauthenticated kill rather than a broken
+  // download, and the same shape was still reachable through EACCES on an
+  // unreadable file (verified) and through TOCTOU on a file rotated away
+  // mid-request. Guard the class, not the instance.
   if (method === 'GET' && pathname.startsWith('/exports/')) {
+   try {
     const filename = pathname.slice('/exports/'.length);
     // Block traversal and symlink escape
     if (!filename || filename.includes('..') || filename.includes('\0') || path.isAbsolute(filename)) {
@@ -623,7 +680,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 404, { error: 'File not found' });
     }
     const contentType = getContentType(filename);
-    const disposition = ['.pdf', '.png', '.jpg', '.jpeg', '.svg'].includes(ext) ? 'inline' : 'inline';
+    // Always inline. This was a ternary over an undefined `ext`, which threw a
+    // ReferenceError on every successful download — above the auth check and
+    // outside the request try/catch, so it terminated the process rather than
+    // returning 500. Both branches were 'inline' anyway, so the condition never
+    // decided anything.
+    const disposition = 'inline';
     const content = fs.readFileSync(resolved);
     res.writeHead(200, {
       'Content-Type': contentType,
@@ -631,25 +693,49 @@ const server = http.createServer(async (req, res) => {
       'Content-Length': content.length
     });
     return res.end(content);
+   } catch (err) { // prawduct:allow prawduct/broad-except -- unauthenticated pre-auth handler; an uncaught sync-fs throw here kills the daemon
+    console.error(`[bridge] /exports serve failed for ${pathname}:`, err);
+    if (!res.headersSent) return json(res, 500, { error: 'Export read failed' });
+    return res.destroy(err);
+   }
   }
 
-  // GET /exports — list available exports (no auth)
+  // GET /exports — list available exports (no auth). Same reasoning as above:
+  // readdirSync/statSync can throw (permissions, or a file rotated away between
+  // the readdir and its stat), and an uncaught throw here ends the process.
   if (method === 'GET' && pathname === '/exports') {
+   try {
     if (!fs.existsSync(EXPORTS_DIR)) {
       return json(res, 200, { exports: [] });
     }
     const files = fs.readdirSync(EXPORTS_DIR, { withFileTypes: true })
       .filter(d => d.isFile())
-      .map(d => ({
-        name: d.name,
-        size: fs.statSync(path.join(EXPORTS_DIR, d.name)).size,
-        url: `/exports/${d.name}`
-      }));
+      .map(d => {
+        // Tolerate a single unstattable entry rather than failing the whole
+        // listing — the common cause is a file removed between readdir and stat.
+        let size = null;
+        try {
+          size = fs.statSync(path.join(EXPORTS_DIR, d.name)).size;
+        } catch { /* size stays null; the entry is still listed */ }
+        return { name: d.name, size, url: `/exports/${d.name}` };
+      });
     return json(res, 200, { exports: files });
+   } catch (err) { // prawduct:allow prawduct/broad-except -- unauthenticated pre-auth handler; an uncaught sync-fs throw here kills the daemon
+    console.error('[bridge] /exports listing failed:', err);
+    if (!res.headersSent) return json(res, 500, { error: 'Export listing failed' });
+    return res.destroy(err);
+   }
   }
 
   // Auth check (skip for health and exports)
   if (pathname !== '/health' && !checkAuth(req)) {
+    // Leave a trace. This binds 0.0.0.0 and every authenticated route can spawn
+    // an agent with shell access, so repeated 401s are the signal that someone
+    // is probing — and stdout is the operator's only channel on an unattended
+    // daemon (observability-strategy.md). Log the method, path and coarse peer;
+    // never the presented credential, which would move a would-be secret from
+    // the wire into a log file that outlives the request.
+    console.warn(`[bridge] 401 ${method} ${pathname} from ${req.socket?.remoteAddress ?? 'unknown'}`);
     return json(res, 401, { error: 'Unauthorized' });
   }
 
@@ -713,7 +799,24 @@ const server = http.createServer(async (req, res) => {
         ptyMode: ptyAvailable ? 'pty' : 'pipes-fallback',
         ptyAvailable,
         ptySpawnable: checkSpawnable(),
+        auth: { required: Boolean(TOKEN) },
       };
+
+      // A health endpoint that asserts wellness over an open door is its own
+      // defect. `ok` stays true — it means "the broker is serving", and the
+      // tools-extension contract already holds that line by never letting an
+      // extension failure flip it — so `insecure` is the separate, alertable
+      // signal for a bridge running without authentication.
+      //
+      // This does tell an unauthenticated caller that auth is off, but a single
+      // request to any other route reveals the same thing. Withholding it would
+      // only keep the operator blind to protect a secret an attacker already has.
+      if (!TOKEN) {
+        payload.insecure = true;
+        payload.auth.warning =
+          'No BRIDGE_TOKEN is set. Every route is served without authentication, '
+          + 'enabled by CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true.';
+      }
 
       if (toolsExtension) {
         try {
@@ -835,6 +938,13 @@ const server = http.createServer(async (req, res) => {
     console.error('Request error:', err);
     return json(res, 500, { error: err.message });
   }
+ } catch (err) { // prawduct:allow prawduct/broad-except -- request-boundary net; an uncaught throw in this async callback exits the process
+   console.error(`[bridge] unhandled error serving ${req.method} ${req.url}:`, err);
+   if (!res.headersSent) {
+     try { return json(res, 500, { error: 'Internal error' }); } catch { /* response already gone */ }
+   }
+   return res.destroy(err);
+ }
 });
 
 /**
@@ -843,6 +953,25 @@ const server = http.createServer(async (req, res) => {
  * @returns {Promise<void>}
  */
 async function startServer() {
+  // Refuse a fail-open configuration before the socket opens. README.md has
+  // documented BRIDGE_TOKEN as required since before this check existed; until
+  // now the code disagreed, and an unattended daemon started without its
+  // environment served every route to the local network while /health reported
+  // a healthy service. A warning would not have helped — nobody reads stdout on
+  // a launchd service at 3am, which is the same blindness that hid the
+  // spawn-helper failure for a release.
+  if (!TOKEN && !ALLOW_UNAUTHENTICATED) {
+    console.error('FATAL: BRIDGE_TOKEN is not set.');
+    console.error('');
+    console.error('  ClawBridge binds 0.0.0.0 and every authenticated route can spawn an agent');
+    console.error('  with shell access to this host, so it will not start without a bearer token.');
+    console.error('');
+    console.error('  Fix: set BRIDGE_TOKEN in bridge/.env (or the service environment).');
+    console.error('  Override, only if this port is genuinely unreachable by anyone else:');
+    console.error('    CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true');
+    process.exit(1);
+  }
+
   if (toolsExtension) {
     try {
       await toolsExtension.init();
@@ -857,7 +986,13 @@ async function startServer() {
     console.log(`  Python: ${PYTHON_BIN}`);
     if (fs.existsSync(PRAWDUCT_SETUP)) console.log(`  Prawduct: ${PRAWDUCT_SETUP}`);
     console.log(`  Projects: ${PROJECTS_DIR}`);
-    console.log(`  Auth: ${TOKEN ? 'Bearer token required' : 'OPEN (no token set)'}`);
+    if (TOKEN) {
+      console.log(`  Auth: Bearer token required`);
+    } else {
+      console.warn(`  Auth: *** UNAUTHENTICATED *** — every route is open to anyone who can`);
+      console.warn(`        reach 0.0.0.0:${PORT}, including session start. Enabled by`);
+      console.warn(`        CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true. Unset it to require a token.`);
+    }
     console.log(`  v2 PTY broker: enabled`);
     if (toolsExtension) console.log(`  Tools extension: ${TOOLS_MODULE_PATH}`);
   });

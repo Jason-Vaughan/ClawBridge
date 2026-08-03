@@ -85,7 +85,7 @@ The right-hand column is mounted only when `CLAWBRIDGE_TOOLS_MODULE` points at a
 **Use ClawBridge if you need:**
 
 - **A Claude Code PTY broker on the host machine.** The bridge spawns Claude Code in a real PTY, parses permission prompts from TUI output, and exposes a structured HTTP API so a container-side orchestrator can approve, deny, or pause each one. This is the primary use case — the broker is what 100% of `bridge/v2/` is built for.
-- *(Optional, advanced)* **A place to co-locate one additional HTTP service inside the bridge process.** Set `CLAWBRIDGE_TOOLS_MODULE` to mount an embedded handler under `/tools/*`. The extension shares the bridge's bearer-token auth, port, and lifecycle. v1 is **single-tenant**: one extension per bridge process, no multi-mount. Documented contract in [docs/tools-extension.md](docs/tools-extension.md).
+- *(Optional, advanced)* **A place to co-locate one additional HTTP service inside the bridge process.** Set `CLAWBRIDGE_TOOLS_MODULE` to mount an embedded handler under `/tools/*`. The extension shares the bridge's auth, port, and lifecycle — note that "shares the auth" means it inherits whatever the bridge is enforcing, which is nothing when `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true`. v1 is **single-tenant**: one extension per bridge process, no multi-mount. Documented contract in [docs/tools-extension.md](docs/tools-extension.md).
 
 **ClawBridge is *not* the right tool if:**
 
@@ -95,6 +95,21 @@ The right-hand column is mounted only when `CLAWBRIDGE_TOOLS_MODULE` points at a
 - You need a security boundary between orchestrator and host beyond bearer-token auth + the permission envelope. ClawBridge's safety model is *structured permission review of a single CLI tool's actions*, not network-level isolation.
 
 **For OpenClaw deployments specifically:** recommend ClawBridge when the deployment uses Claude Code as a builder behind a containerized orchestrator. If a deployment also needs an embedded tools API (RentalClaw-style), point at `CLAWBRIDGE_TOOLS_MODULE`. If a deployment needs multiple distinct host-side services bridged, ClawBridge alone is insufficient — pair it with a reverse proxy.
+
+## Security Posture
+
+ClawBridge's safety model is **structured permission review of one CLI tool's actions**, plus bearer-token auth. It is not a sandbox, not a jail, and not a network boundary between an untrusted orchestrator and the host. Deploy it as though the caller can do anything the API allows.
+
+**Authentication is mandatory.** The bridge refuses to start without `BRIDGE_TOKEN` and exits non-zero naming the fix. It previously treated an unset token as "authentication optional" and served every route openly — a misconfigured daemon was an unauthenticated command-execution surface on the local network, while `/health` reported a healthy service. If you genuinely need the open mode, `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` enables it; `/health` then reports `insecure: true` with `auth.required: false`, and every boot logs a warning. Monitor on `insecure`.
+
+Two further properties are worth stating outright, because both are deliberate:
+
+- **One privilege tier.** There is a single shared `BRIDGE_TOKEN` and no per-caller authorization. Any token holder can act on any project.
+- **Transcripts are unfiltered.** The event log and `/v2/session/transcript` store raw PTY output verbatim, so anything Claude Code prints — the contents of a `.env`, an echoed key, a token in a stack trace — is held in memory and returned in full to any token holder. There is no redaction, by decision rather than by omission: this is a single-operator host daemon, and anyone who can read a transcript already has access to the host those secrets live on. Adding redaction would buy little and would make the transcript a less faithful record of what actually happened.
+
+If your deployment breaks either assumption — multiple mutually-untrusting callers, or transcripts leaving the trust boundary they were produced in — supply the missing control at the network layer. ClawBridge will not do it for you.
+
+The full model, including known gaps, is in [`.prawduct/artifacts/security-model.md`](.prawduct/artifacts/security-model.md).
 
 ## Quickstart
 
@@ -173,10 +188,13 @@ curl -H "Authorization: Bearer $BRIDGE_TOKEN" \
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `BRIDGE_PORT` | Yes | Port to listen on (default: 3201) |
-| `BRIDGE_TOKEN` | Yes | Bearer token for API authentication |
+| `BRIDGE_TOKEN` | Yes | Bearer token for API authentication. **The bridge refuses to start without it** — see below. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Yes | Token from `claude setup-token` for headless auth |
 | `CLAUDE_BIN` | No | Path to Claude Code binary (default: `/usr/local/bin/claude`) |
 | `PYTHON_BIN` | No | Path to Python 3 binary (auto-detected) |
+| `PROJECTS_DIR` | No | Directory containing projects the bridge may operate on (default: `$HOME/projects`). Sessions run here, and it scopes `/projects/*` and `/v2/session/file`. |
+| `EXPORTS_DIR` | No | Directory served by `GET /exports` and `GET /exports/*` (default: `$HOME/exports`). **These two routes are unauthenticated by design** — the listing exposes every filename and the download serves every file. Point it at a directory you are content to publish to anyone who can reach the port. |
+| `CLAWBRIDGE_ALLOW_UNAUTHENTICATED` | No | Set to exactly `true` to start without `BRIDGE_TOKEN`, serving every route unauthenticated. Only for a port genuinely unreachable by anyone else. Any other value — including `1`, `yes`, or `TRUE` — is not accepted. |
 | `CLAWBRIDGE_TOOLS_MODULE` | No | Absolute path to a Node module implementing the [tools extension interface](docs/tools-extension.md). When set, the bridge mounts the module under `/tools/*` and merges its health into `/health`. Absent, the bridge runs as a pure PTY broker. |
 
 ### Claude Code Headless Auth
@@ -191,7 +209,7 @@ This generates the `CLAUDE_CODE_OAUTH_TOKEN`. **Do not rely on keychain auth** �
 
 ## API Reference
 
-All endpoints require `Authorization: Bearer <token>` except `/health`.
+All endpoints require `Authorization: Bearer <token>` except `/health`, `GET /exports`, and `GET /exports/*`, which are unauthenticated by design. (And note that in the `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` mode there is no token to check, so *nothing* is authenticated — see [Security Posture](#security-posture).)
 
 `GET /v2/api-docs` returns the full self-describing reference — use it as the entry point for automation.
 
@@ -350,12 +368,12 @@ If a governance tool (e.g., [prawduct](https://github.com/brookst/prawduct)) is 
 
 ### Tools extension
 
-Set `CLAWBRIDGE_TOOLS_MODULE` to the absolute path of a Node module that exports `{ init, handleToolsRoute, getToolsHealth, close }` and the bridge will mount it under `/tools/*`, merge its health into `/health`, and close it on shutdown. See [docs/tools-extension.md](docs/tools-extension.md) for the full interface contract, guarantees, and reference implementation.
+Set `CLAWBRIDGE_TOOLS_MODULE` to the absolute path of a Node module that exports `{ init, handleToolsRoute, getToolsHealth, close }` and the bridge will mount it under `/tools/*`, merge its health into `/health`, and close it on shutdown. Bridge auth runs before your handler, but it enforces nothing in the unauthenticated mode — see the auth caveat in the contract. See [docs/tools-extension.md](docs/tools-extension.md) for the full interface contract, guarantees, and reference implementation.
 
 ## Testing
 
 ```bash
-# Run all tests (516 across 20 files; 14 e2e skipped by default)
+# Run all tests (612 across 24 files; 598 executed, 14 e2e skipped by default)
 npm test
 
 # Run with live E2E (requires Claude Code installed)
@@ -383,7 +401,7 @@ ClawBridge/
       event-log.js         # Append-only event log with cursor reads and long-poll
       sessions.js          # Session + SessionManager: lifecycle, timers, permissions
       routes.js            # HTTP route handlers (includes api-docs, peek, test detection)
-      __tests__/           # 18 test files, 469 tests
+      __tests__/           # 18 test files, 512 tests (14 e2e skipped by default)
   docs/
     bridge-v2-maintainer-guide.md
     bridge-v2-pty-broker-spec.md

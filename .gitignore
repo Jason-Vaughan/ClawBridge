@@ -3,3 +3,35 @@ node_modules/
 *.log
 .DS_Store
 bridge/.session-history/
+
+# Prawduct session files
+.claude/settings.local.json
+.prawduct/.bug-inbox
+.prawduct/.critic-active
+.prawduct/.critic-findings.json
+.prawduct/.critic-partials/
+.prawduct/.governance-ledger.jsonl
+.prawduct/.handoff-notes.md
+.prawduct/.test-evidence.json
+.prawduct/.pr-reviews/
+.prawduct/.session-base-tree
+.prawduct/.session-git-baseline
+.prawduct/.session-handoff.md
+.prawduct/.session-reflected
+.prawduct/.session-start
+.prawduct/.subagent-briefing.md
+.prawduct/.gates-waived
+.prawduct/.advisories.json
+.prawduct/.work-model-index.json
+.prawduct/reflections.md
+__pycache__/
+
+# Prawduct plugin version marker (per-repo last-seen)
+.prawduct/.prawduct-version
+
+# TangleClaw-generated, machine-local: may carry deploy paths, host names, and an
+# inventory of the operator's private shared docs. Never commit to this PUBLIC repo
+# (2026-08-02 near-miss — PROJECT-MAP.md listed 37 private doc names).
+.tangleclaw/
+PROJECT-MAP.md
+FEATURES.md
