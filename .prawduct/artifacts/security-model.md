@@ -284,16 +284,24 @@ signal, and the one that keeps a loopback dev UI working, since a different port
 site reports `same-site`), and falls back to `Sec-Fetch-Site` when it is absent.
 
 Coverage: `bridge/__tests__/auth.test.js`. Every guard here was verified by reintroducing the
-defect it guards and watching the specific test go red — replacing the URL parse with a prefix
-match fails the `127.0.0.1.evil.example` test alone; disabling the `Sec-Fetch-Site` branch
-fails the no-`Origin` consume-GET test alone; matching against the raw allowlist rather than
-the effective one fails the `Origin: null` test alone; and disabling the gate outright fails
-every refusal test while leaving the compatibility tests green, which is what shows the gate is
-scoped rather than blanket.
+defect it guards and watching the named tests go red. Re-runnable, and last re-derived by
+running each mutation on 2026-08-03:
 
-Stated as invariants rather than counts on purpose: an earlier version of this paragraph said
-"disabling the gate fails 6" and was stale within two commits, because the number tracks a
-suite that grows.
+| Reintroduced defect | Tests that go red |
+|---|---|
+| Prefix-match instead of parsing the origin URL | *does not mistake a loopback-prefixed hostname for loopback* |
+| Disable the `Sec-Fetch-Site` branch | *refuses a no-cors GET that carries no Origin at all* **and** *refuses a same-site no-cors load…* — both, because that branch is the only refusal path for a request carrying no `Origin` |
+| Match against the raw allowlist instead of the effective one | *does not honour an allowlist entry it reports as inert* — **not** *refuses the literal null origin…*, which runs with no allowlist configured and so refuses `null` either way |
+| Disable the gate outright | every refusal test, while the compatibility tests stay green — which is what shows the gate is scoped rather than blanket |
+
+Named rather than counted, and named *precisely*, because both failure modes have already
+happened here. An earlier version said "disabling the gate fails 6" and was stale within two
+commits. Its replacement said the `Sec-Fetch-Site` mutation "fails the no-`Origin` consume-GET
+test alone" — true when written, false one test later, because a second no-`Origin` test was
+added in the same work cycle and the claim was never re-derived. It also pointed the
+raw-allowlist mutation at the wrong `null` test of the two that exist. A record of what was
+falsified is only worth having if a maintainer who re-runs it gets what it predicts; an
+over-narrow claim reads to them as "I broke something extra".
 
 **What this does not defend against, stated so it is not over-claimed:**
 
