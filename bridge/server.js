@@ -68,6 +68,24 @@ const ALLOWED_ORIGINS = new Set(
     .map(o => o.trim())
     .filter(Boolean),
 );
+
+// Entries that are not serialized origins, and so can never match an Origin
+// header no matter what a browser sends. A trailing slash or a bare hostname
+// both look right and both silently do nothing.
+//
+// Split out at boot rather than checked per request, because both the startup
+// warning and /health have to report the same set: a configured-but-inert entry
+// listed on /health as though it were active tells a remote operator the
+// opposite of the truth, and /health is the surface they can actually reach.
+const MALFORMED_ALLOWED_ORIGINS = [...ALLOWED_ORIGINS].filter((candidate) => {
+  try {
+    return new URL(candidate).origin !== candidate;
+  } catch {
+    return true;
+  }
+});
+const EFFECTIVE_ALLOWED_ORIGINS = [...ALLOWED_ORIGINS]
+  .filter(o => !MALFORMED_ALLOWED_ORIGINS.includes(o));
 const HOME = process.env.HOME || '';
 const PROJECTS_DIR = process.env.PROJECTS_DIR || path.join(HOME, 'projects');
 const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
@@ -949,6 +967,32 @@ const server = http.createServer(async (req, res) => {
         payload.auth.warning =
           'No BRIDGE_TOKEN is set. Every route is served without authentication, '
           + 'enabled by CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true.';
+
+        // The origin gate is the only thing standing between a visited web page
+        // and this bridge while it runs open, and a control nobody can observe
+        // is a control that regresses unnoticed. Report it where a remote
+        // operator already looks: an allowlist widened months ago is exactly
+        // what nobody remembers, and `additionalOrigins` is what makes it
+        // answerable without shell access to the host.
+        payload.cors = {
+          mode: 'gated',
+          loopbackAllowed: true,
+          additionalOrigins: EFFECTIVE_ALLOWED_ORIGINS,
+        };
+        // Reported separately rather than folded in: an entry that is configured
+        // but inert is the one an operator most needs told about, and listing it
+        // as allowed would answer their question wrongly.
+        if (MALFORMED_ALLOWED_ORIGINS.length) {
+          payload.cors.invalidOrigins = MALFORMED_ALLOWED_ORIGINS;
+          payload.cors.warning =
+            'CLAWBRIDGE_ALLOWED_ORIGINS contains entries that are not serialized origins '
+            + '(a trailing slash or path is the usual cause). They never match.';
+        }
+      } else {
+        // Reported in both modes on purpose. "The key is absent" and "the key is
+        // present and says wildcard" are different facts, and only one of them
+        // survives an operator asking whether this bridge is gated.
+        payload.cors = { mode: 'wildcard', reason: 'a token is required, so no origin check is applied' };
       }
 
       if (toolsExtension) {
@@ -1104,9 +1148,10 @@ async function startServer() {
     console.error('    openssl rand -base64 32');
     console.error('  (This is NOT the same as CLAUDE_CODE_OAUTH_TOKEN, which comes from');
     console.error('   `claude setup-token`.)');
-    console.error('  Override — only if nothing else can reach this port AND no browser runs');
-    console.error('  on this host (CORS is wildcard, so a visited page could call the API):');
+    console.error('  Override — only if nothing else can reach this port:');
     console.error('    CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true');
+    console.error('  Cross-origin browser requests are refused in that mode, so a visited');
+    console.error('  page cannot call the API. Set CLAWBRIDGE_ALLOWED_ORIGINS to permit one.');
     process.exit(1);
   }
 
@@ -1130,6 +1175,21 @@ async function startServer() {
       console.warn(`  Auth: *** UNAUTHENTICATED *** — every route is open to anyone who can`);
       console.warn(`        reach 0.0.0.0:${PORT}, including session start. Enabled by`);
       console.warn(`        CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true. Unset it to require a token.`);
+      console.log(`  CORS: cross-origin browser requests refused${EFFECTIVE_ALLOWED_ORIGINS.length ? '' : ' except from loopback'}`);
+      if (EFFECTIVE_ALLOWED_ORIGINS.length) {
+        console.log(`        also allowed: ${EFFECTIVE_ALLOWED_ORIGINS.join(', ')}`);
+      }
+      // A typo here fails closed, which is the right direction but a silent one:
+      // the operator sees a refused browser and no reason for it. Name it at
+      // boot rather than leaving it to be debugged live.
+      for (const candidate of MALFORMED_ALLOWED_ORIGINS) {
+        let suggestion = null;
+        try {
+          suggestion = new URL(candidate).origin;
+        } catch { /* unparseable — no suggestion to offer */ }
+        console.warn(`        WARNING: CLAWBRIDGE_ALLOWED_ORIGINS entry ${JSON.stringify(candidate)} is not a`);
+        console.warn(`        serialized origin and will never match${suggestion ? `; did you mean ${suggestion}?` : '.'}`);
+      }
     }
     console.log(`  v2 PTY broker: enabled`);
     if (toolsExtension) console.log(`  Tools extension: ${TOOLS_MODULE_PATH}`);

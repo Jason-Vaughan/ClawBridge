@@ -50,7 +50,7 @@
 
 ## 2026-08-03: Gate cross-origin requests when the bridge runs without a token
 
-<!-- prawduct: chunks=01 | status=shipped | release=v2.0.0 | scope=cors-origin -->
+<!-- prawduct: chunks=01,02 | status=shipped | release=v2.0.0 | scope=cors-origin -->
 
 **Why:** `CRS-4T8K` proposed narrowing the wildcard CORS origin, and narrowing it would not
 have closed the hole. CORS decides whether a page may *read* a response, not whether the
@@ -71,6 +71,23 @@ consume-on-read route straight through, which was this change's own headline sce
 test passed only because it set `Origin` by hand — `fetch()` does, an `<img>` tag never does.
 `Sec-Fetch-Site` now covers that case; `Origin` still decides when present, so a loopback dev
 UI on another port is not caught by its own `same-site` report.
+
+**Made the posture observable (chunk 02).** `/health` now carries `cors`, reporting `gated` vs
+`wildcard`, whether loopback is allowed, and which additional origins are in force — because a
+security control nobody can see is one that regresses unnoticed, and nobody reads stdout on a
+launchd service at 3am. Building that surfaced a second defect of the same kind: an entry with
+a trailing slash fails closed *silently*, so `/health` would have listed a configured-but-inert
+origin as active and answered the operator's question with the opposite of the truth.
+Malformed entries are now split into `cors.invalidOrigins` with a warning, and named at boot.
+
+**Records reconciled (chunk 02).** The precondition "and no browser runs on this host" was
+enforceable nowhere and stated in five places; it is now enforced instead of requested, so the
+FATAL startup message, README Security Posture, the README env table and the operational-spec
+triage row all drop it. Three `## [2.0.0]` CHANGELOG entries were corrected rather than
+appended to — that version has not shipped, so entries claiming the origin narrowing was "left
+as a separate decision" described 2.0.0 wrongly. The departure from the api-contract
+compatibility norm is recorded in `api-contract.md` beside its `BRIDGE_TOKEN` sibling, with the
+norm re-affirmed rather than weakened.
 
 **Deviation from the plan:** the plan called for a `docs/bridge-v2-bug-index.md` row mapping
 this defect to its regression test. That index covers the numbered v2 broker bugs whose tests

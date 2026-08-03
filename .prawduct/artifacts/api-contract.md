@@ -42,6 +42,42 @@ Recorded here rather than in the build plan, because plans are retired at merge 
 whose only recorded exception lives in a deleted file is a norm that will be misread next
 time.
 
+### Recorded departure — 2026-08-03, the cross-origin gate (`CRS-4T8K`)
+
+Refusing cross-origin browser requests while the bridge runs without a token **narrows** what
+a caller can do to `/v2/*`, so the norm above applies and this is a departure. Naming it
+transport-level rather than contract-level would be the laundering move; it is recorded
+instead.
+
+Affected population: a browser page at a non-loopback origin driving an *unauthenticated*
+bridge. Non-browser callers send neither `Origin` nor `Sec-Fetch-Site` and see no change at
+all, and nothing changes when a token is set — so this narrows a real capability, but a
+narrow one.
+
+It meets the same four conditions that made the `BRIDGE_TOKEN` departure honest:
+
+- The norm protects consumers from surprise, not from losing a state that endangers them. The
+  prior behavior let a page the operator merely visited spawn agents and delete files on the
+  host — `GET /v2/session/file?consume=true` unlinks, and a no-cors `GET` needs no preflight,
+  no script, and no `Origin` header.
+- The precondition the product *documented* for this mode ("no browser runs on this host")
+  was never satisfiable by an operator. The docs were the side making a promise the code could
+  not keep.
+- `CLAWBRIDGE_ALLOWED_ORIGINS` is the path forward: any deployment that genuinely serves a
+  browser UI against an open bridge names its origin and keeps working.
+- It ships marked `BREAKING` in a major, so the cost is visible in the version rather than
+  arriving in a patch.
+
+**The norm itself is re-affirmed, not weakened.** Two departures now exist, both security
+fixes to states that endangered consumers, both with an explicit escape hatch and a major
+version carrying the cost. Neither licenses a *feature* removal in anything but a
+path-major — that remains the rule, and the next narrowing that is not a security fix does
+not get to cite these.
+
+Still open under the norm and deliberately not taken here: `SEC-K4RD` argues a destructive
+operation should not answer `GET` at all. Changing that method is a second narrowing, and it
+surfaced mid-build rather than being planned, so it is filed rather than folded in.
+
 ## Canonical sources — do not duplicate them here
 
 | Surface | Canonical spec |

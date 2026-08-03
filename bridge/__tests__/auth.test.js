@@ -825,6 +825,121 @@ describe('the origin gate on an unauthenticated bridge', () => {
   });
 });
 
+describe('/health reports the CORS posture, so the gate cannot regress unobserved', () => {
+  /** @type {string[]} */
+  const tempDirs = [];
+  afterEach(() => {
+    while (tempDirs.length) fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
+  });
+
+  it('declares the gate and the loopback default when running open', async () => {
+    // Nobody reads stdout on a launchd service at 3am. A security control that
+    // is only observable by shell access to the host is one nobody checks.
+    const bridge = await spawnBridge({
+      token: '',
+      extraEnv: { CLAWBRIDGE_ALLOW_UNAUTHENTICATED: 'true' },
+    });
+    await bridge.waitForListening();
+
+    const res = await httpSend(bridge.port, { path: '/health' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.cors.mode).toBe('gated');
+    expect(res.body.cors.loopbackAllowed).toBe(true);
+    expect(res.body.cors.additionalOrigins).toEqual([]);
+  });
+
+  it('names a widened allowlist, which is the part an operator will not remember', async () => {
+    const bridge = await spawnBridge({
+      token: '',
+      extraEnv: {
+        CLAWBRIDGE_ALLOW_UNAUTHENTICATED: 'true',
+        CLAWBRIDGE_ALLOWED_ORIGINS: 'https://ui.example,https://other.example',
+      },
+    });
+    await bridge.waitForListening();
+
+    const res = await httpSend(bridge.port, { path: '/health' });
+
+    expect(res.body.cors.mode).toBe('gated');
+    expect(res.body.cors.additionalOrigins).toEqual(['https://ui.example', 'https://other.example']);
+  });
+
+  it('distinguishes wildcard from gated rather than omitting the key', async () => {
+    // "The key is absent" and "the key says wildcard" are different facts, and
+    // only one of them answers an operator asking whether this bridge is gated.
+    const bridge = await spawnBridge({ token: TEST_TOKEN });
+    await bridge.waitForListening();
+
+    const res = await httpSend(bridge.port, {
+      path: '/health',
+      headers: { 'Authorization': `Bearer ${TEST_TOKEN}` },
+    });
+
+    expect(res.body.cors.mode).toBe('wildcard');
+  });
+
+  it('does not present an inert allowlist entry as though it were active', async () => {
+    // /health is the surface a remote operator can actually reach, so listing a
+    // configured-but-unmatchable origin under additionalOrigins would answer
+    // their question with the opposite of the truth. The valid sibling proves
+    // the split is a split and not a blanket rejection.
+    const bridge = await spawnBridge({
+      token: '',
+      extraEnv: {
+        CLAWBRIDGE_ALLOW_UNAUTHENTICATED: 'true',
+        CLAWBRIDGE_ALLOWED_ORIGINS: 'https://ui.example/,https://good.example',
+      },
+    });
+    await bridge.waitForListening();
+
+    const res = await httpSend(bridge.port, { path: '/health' });
+
+    expect(res.body.cors.additionalOrigins).toEqual(['https://good.example']);
+    expect(res.body.cors.invalidOrigins).toEqual(['https://ui.example/']);
+    expect(res.body.cors.warning).toContain('never match');
+  });
+
+  it('refuses an origin that was configured in an unmatchable spelling', async () => {
+    // The report and the behavior have to agree: /health says it never matches,
+    // so a request from the spelling the operator *meant* must still be refused.
+    const bridge = await spawnBridge({
+      token: '',
+      extraEnv: {
+        CLAWBRIDGE_ALLOW_UNAUTHENTICATED: 'true',
+        CLAWBRIDGE_ALLOWED_ORIGINS: 'https://ui.example/',
+      },
+    });
+    await bridge.waitForListening();
+
+    const res = await httpSend(bridge.port, {
+      path: '/health',
+      headers: { 'Origin': 'https://ui.example' },
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('warns at boot about an allowlist entry that can never match', async () => {
+    // Failing closed on a typo is right, but silently is not: the operator sees
+    // a refused browser and no reason. A trailing slash is the likely typo,
+    // because it is what a human copies out of a URL bar.
+    const bridge = await spawnBridge({
+      token: '',
+      extraEnv: {
+        CLAWBRIDGE_ALLOW_UNAUTHENTICATED: 'true',
+        CLAWBRIDGE_ALLOWED_ORIGINS: 'https://ui.example/',
+      },
+    });
+    await bridge.waitForListening();
+    await bridge.waitForOutput('will never match');
+
+    const { stdout, stderr } = bridge.getOutput();
+    expect(stdout + stderr).toContain('https://ui.example/');
+    expect(stdout + stderr).toContain('did you mean https://ui.example');
+  });
+});
+
 describe('the origin gate stays out of the way when a token is set', () => {
   it('keeps the wildcard and the pre-existing behavior for a token-holding caller', async () => {
     // The compatibility half of the scope decision: the gate exists because an

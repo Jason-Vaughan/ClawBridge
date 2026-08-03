@@ -1105,7 +1105,7 @@ views_enabled: true
 # Do not hand-edit — overwritten on next regen.
 scope_rollups:
   cors-origin:
-    chunks: ["01"]
+    chunks: ["01", "02"]
     releases: ["v2.0.0"]
 
 # =============================================================================
@@ -1159,7 +1159,8 @@ coverage_required: false
 # Declared because the defaults do not fit this repo: the hook would otherwise
 # run `python -m pytest` and grep a `tests/` directory, neither of which exists
 # here. Verified 2026-08-02 — this exact invocation produced a parseable JUnit
-# report for all 565 tests across 22 files, 0 failures.
+# report for the whole suite, 0 failures (565 tests across 22 files at that
+# date; the claim being recorded is that the invocation parses, not the count).
 test_command: npx vitest run --reporter=junit --outputFile={junit_xml}
 
 # Two trees: bridge/__tests__ covers the server, prawduct argv, project files

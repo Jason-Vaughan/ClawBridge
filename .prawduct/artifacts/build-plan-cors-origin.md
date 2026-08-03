@@ -78,17 +78,23 @@ file is a norm that will be misread next time.
 ## Status
 
 - [x] Chunk 01: The origin gate — reject disallowed origins, echo the allowed one
-- [ ] Chunk 02: Make the posture visible and reconcile the governing artifacts
-Context: Plan written 2026-08-03 after a discovery pass corrected `CRS-4T8K`'s stated remedy.
-Chunk 01 committed on `release/2.0.0`, Critic clean (0 blocking, 0 warning). Its design grew
-one signal under review: keying on `Origin` alone missed the no-cors GET, which carries none,
-so `Sec-Fetch-Site` backs it up. Next: Chunk 02, which ships into the same PR and is therefore
-`Type: cumulative-final` — commit it, then run `/prawduct:critic cumulative` once.
+- [x] Chunk 02: Make the posture visible and reconcile the governing artifacts
+Context: Plan written 2026-08-03 after a discovery pass corrected `CRS-4T8K`'s stated remedy;
+both chunks built and committed on `release/2.0.0`. The design grew one signal under review —
+keying on `Origin` alone missed the no-cors GET, which carries none, so `Sec-Fetch-Site` backs
+it up — and chunk 02 found the same defect class again in its own work: a malformed allowlist
+entry failed closed silently, so `/health` would have reported it as active. Both are fixed and
+falsified. Suite 604 → 629.
 
-Two things Chunk 02 inherits: the `565`-test figure in `backlog.md`, `change-log.md` and
-`project-state.yaml` (each a dated verification record, so check whether any reads as *current*
-before touching — rewriting a dated fact falsifies history), and `SEC-K4RD`, filed rather than
-built, which argues the destructive route should not answer `GET` at all.
+Plan complete pending the single `/prawduct:critic cumulative` that `Type: cumulative-final`
+calls for, then `/prawduct:pr`. The `565`-test figures in `backlog.md` and `change-log.md` were
+deliberately left: each is a dated verification record, and rewriting a dated fact falsifies
+history rather than fixing staleness. Only the `project-state.yaml` one was touched, because it
+read as a claim about the current suite rather than about the invocation it was recording.
+
+Open past this plan: `SEC-K4RD` — the destructive route should not answer `GET` at all. Filed
+rather than built, because it surfaced mid-build; free inside 2.0.0 and expensive after, so it
+is a decision the release should not pass silently.
 
 ## Scaffolding
 

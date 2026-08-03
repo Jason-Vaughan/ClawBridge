@@ -217,7 +217,7 @@ handler; see `architecture.md`, which rejects that and says why.
 Three attempts were needed to close one class: fix the undefined variable, then guard both
 `/exports` handlers, then wrap the callback. Each attempt fixed the instance in front of it.
 
-### G5 — Wildcard CORS makes the unauthenticated mode browser-reachable · `CRS-4T8K` · OPEN
+### G5 — Wildcard CORS made the unauthenticated mode browser-reachable · `CRS-4T8K` · **FIXED 2026-08-03**
 
 `bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and the
 preflight allows `POST` with `Content-Type, Authorization`.
@@ -231,13 +231,21 @@ no browser runs here", not "unreachable from the network" — which is how it wa
 written, in the startup warning and the README, by me.
 
 Documented at the header, in the FATAL startup message, in README Security Posture, and in
-the operational-spec triage row. **Not fixed**: narrowing the origin when `TOKEN` is empty
+the operational-spec triage row. ~~**Not fixed**: narrowing the origin when `TOKEN` is empty
 would change CORS behavior for existing container callers, which is an owner decision, not
-a drive-by in a security PR. That is `CRS-4T8K`.
+a drive-by in a security PR.~~ **Superseded 2026-08-03** — fixed, by the two-signal gate
+described below. The "existing container callers" concern turned out not to apply: container
+and CLI callers send neither `Origin` nor `Sec-Fetch-Site`, so the gate is invisible to them,
+and no compatibility shim was needed.
 
 Raised by Critic three times before being acted on. Each pass I classified the whole item
 as the owner's call because *part* of it was — while the unsatisfiable precondition in my
 own prose was mine to fix from the first pass.
+
+The precondition sentence above ("nothing else can reach the port **and** no browser runs
+here") is retained as the record of what was wrong. It is no longer the product's contract:
+the browser half is now enforced rather than requested, so the stated precondition is
+"nothing else can reach the port", which an operator can actually satisfy.
 
 #### The header alone does not close it (2026-08-03)
 

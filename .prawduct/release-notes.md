@@ -11,7 +11,7 @@
 
 **Entry:** 2026-08-03: Gate cross-origin requests when the bridge runs without a token
 
-**Chunks shipped:** 01
+**Chunks shipped:** 01, 02
 
 ### 2026-08-03: Close the documented install path around the auth guard
 
