@@ -1103,7 +1103,10 @@ views_enabled: true
 # Scope rollups — derived view, populated by regen-views when views_enabled is
 # true. Lists chunks (and releases) shipped under each scope rollup tag.
 # Do not hand-edit — overwritten on next regen.
-scope_rollups: {}
+scope_rollups:
+  cors-origin:
+    chunks: ["01"]
+    releases: ["v2.0.0"]
 
 # =============================================================================
 # COVERAGE EVIDENCE (opt-in, v1.4+)

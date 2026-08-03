@@ -7,6 +7,12 @@
 
 ## v2.0.0
 
+### cors-origin
+
+**Entry:** 2026-08-03: Gate cross-origin requests when the bridge runs without a token
+
+**Chunks shipped:** 01
+
 ### 2026-08-03: Close the documented install path around the auth guard
 
 **Entry:** 2026-08-03: Close the documented install path around the auth guard

@@ -17,7 +17,7 @@ governed_by:
       - "reserved namespaces (/v2, /api/*, /health, /projects) → conforms — no route is added, moved, or claimed; the gate is a pre-routing filter"
   - artifact: project-preferences
     dispositions:
-      - "named regression test for every known bug, mapped in docs/bridge-v2-bug-index.md → conforms (Chunk 01)"
+      - "named regression test for every known bug → conforms; the index the norm named was split by defect kind under a recorded, vetoable decision in project-preferences.md — numbered broker bugs stay in docs/bridge-v2-bug-index.md, security defects map from security-model.md § Known gaps, and this one names bridge/__tests__/auth.test.js"
       - "security code wants one implementation → conforms — one origin gate, no second check path"
       - "tests assert observable behavior through the public surface → conforms — real bridge subprocess over HTTP"
       - "every change updates CHANGELOG.md → conforms, but under [2.0.0], not [Unreleased] (see Chunk 02)"
@@ -77,11 +77,18 @@ file is a norm that will be misread next time.
 
 ## Status
 
-- [ ] Chunk 01: The origin gate — reject disallowed origins, echo the allowed one
+- [x] Chunk 01: The origin gate — reject disallowed origins, echo the allowed one
 - [ ] Chunk 02: Make the posture visible and reconcile the governing artifacts
 Context: Plan written 2026-08-03 after a discovery pass corrected `CRS-4T8K`'s stated remedy.
-Nothing built yet. Next: Chunk 01. Ships into `release/2.0.0` as one PR, so Chunk 02 is
-`Type: cumulative-final`.
+Chunk 01 committed on `release/2.0.0`, Critic clean (0 blocking, 0 warning). Its design grew
+one signal under review: keying on `Origin` alone missed the no-cors GET, which carries none,
+so `Sec-Fetch-Site` backs it up. Next: Chunk 02, which ships into the same PR and is therefore
+`Type: cumulative-final` — commit it, then run `/prawduct:critic cumulative` once.
+
+Two things Chunk 02 inherits: the `565`-test figure in `backlog.md`, `change-log.md` and
+`project-state.yaml` (each a dated verification record, so check whether any reads as *current*
+before touching — rewriting a dated fact falsifies history), and `SEC-K4RD`, filed rather than
+built, which argues the destructive route should not answer `GET` at all.
 
 ## Scaffolding
 
