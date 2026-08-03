@@ -437,7 +437,7 @@ ClawBridge/
 |----------|---------|
 | [Maintainer Guide](docs/bridge-v2-maintainer-guide.md) | Architecture, data flow, known fragility, operational reference |
 | [PTY Broker Spec](docs/bridge-v2-pty-broker-spec.md) | Design spec for the permission broker |
-| [Bug Index](docs/bridge-v2-bug-index.md) | All 13 known bugs with regression test mappings |
+| [Bug Index](docs/bridge-v2-bug-index.md) | Every numbered v2 broker bug, mapped to the regression test that guards it |
 | [Regression Checklist](docs/bridge-v2-regression-checklist.md) | What to verify after any change |
 
 ## Related Projects

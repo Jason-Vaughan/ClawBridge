@@ -1020,7 +1020,7 @@ build_state:
 # governance sees NO active plan — the session briefing warns loudly until
 # it's fixed (STH-5P2W).
 #
-# active_build_plan: artifacts/build-plan-my-scope.md
+active_build_plan: artifacts/build-plan-cors-origin.md
 
 # =============================================================================
 # BUILD-PLAN REF ROOT (opt-in, unset by default)
@@ -1221,7 +1221,7 @@ api_versioning_decided: uri-path-v2-plus-npm-semver; deprecation policy ratified
 backlog_format_version: 2
 # backlog_prefixes: []
 # backlog_external_imports: []
-# backlog_last_groomed_at:
+backlog_last_groomed_at: 2026-08-03
 
 # =============================================================================
 # CHANGE LOG

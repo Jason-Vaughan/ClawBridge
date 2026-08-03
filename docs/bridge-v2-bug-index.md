@@ -1,6 +1,12 @@
 # Bridge v2 Bug Index
 
-Quick reference for bugs #1–12. Each links to the regression test that guards against it.
+Quick reference for the numbered v2 broker bugs. Every row links to the regression test that
+guards against it, and every numbered bug has a row.
+
+Security defects carry an id rather than a number and are recorded in
+`.prawduct/artifacts/security-model.md` § Known gaps, each naming its own guard — their tests
+live with the boundary they defend (`bridge/__tests__/auth.test.js` for the auth and origin
+boundaries) rather than in `regression.test.js`.
 
 | # | Title | Fixed in | Regression test(s) |
 |---|-------|----------|-------------------|

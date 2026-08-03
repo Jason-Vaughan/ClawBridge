@@ -239,6 +239,61 @@ Raised by Critic three times before being acted on. Each pass I classified the w
 as the owner's call because *part* of it was — while the unsatisfiable precondition in my
 own prose was mine to fix from the first pass.
 
+#### The header alone does not close it (2026-08-03)
+
+The remedy first written here — echo only loopback origins, or drop the wildcard when
+`TOKEN` is empty — **would not have made the precondition satisfiable**, and shipping it
+would have produced a fix that documented itself as closing a hole it left open.
+
+`parseBody` does not inspect `Content-Type`; it `JSON.parse`s whatever bytes arrive. So a
+visited page can send `POST /v2/session/start` with `Content-Type: text/plain` — one of the
+three CORS-safelisted content types — which makes it a **simple request**: no preflight, the
+browser delivers it, and the route acts on it. CORS then blocks the page from *reading the
+response*, by which time the agent has spawned. CORS governs response readability, not
+request delivery; it has never been a CSRF defense.
+
+**Decided remedy — both halves, and only the first is load-bearing:**
+
+1. **Reject state-changing requests carrying a disallowed `Origin`**, before routing. This is
+   what stops the simple-request path. It is safe for non-browser callers because they send
+   no `Origin` header at all — curl, containers, and the RentalClaw client are untouched, and
+   that property is the reason this can ship without a compatibility shim.
+2. **Echo the allowed origin instead of `*`**, which covers response readability and makes
+   preflights refuse disallowed origins.
+
+Both apply **only when `TOKEN` is empty**. With a token set, a cross-origin page cannot
+attach `Authorization` without triggering a preflight and holds no token in any case, so the
+wildcard stays and container callers see no change at all.
+
+**`Origin` alone does not see the easiest attack.** Browsers append `Origin` only when the
+request mode is CORS or the method is not GET/HEAD. A no-cors GET — `<img src>`,
+`<script src>`, an `<iframe>`, a top-level navigation — carries none, needs no preflight and
+no script, and would have driven the consume-on-read route straight through an Origin-only
+gate. `Sec-Fetch-Site` covers that case: browsers send it on exactly those loads and no
+non-browser client sends it. So the gate reads `Origin` when present (the more precise
+signal, and the one that keeps a loopback dev UI working, since a different port on the same
+site reports `same-site`), and falls back to `Sec-Fetch-Site` when it is absent.
+
+Coverage: `bridge/__tests__/auth.test.js`. Each guard verified by reintroducing the defect it
+guards — disabling the gate fails 6, replacing the URL parse with a prefix match fails the
+`127.0.0.1.evil.example` test alone, and disabling the `Sec-Fetch-Site` branch fails the
+no-`Origin` consume-GET test alone.
+
+**What this does not defend against, stated so it is not over-claimed:**
+
+- Both signals are *headers*, meaningful against browsers (which set them, and page script
+  cannot forge either) and worthless against a direct attacker. In unauthenticated mode a
+  direct attacker needs no CSRF — every route is already open to anyone who can reach the
+  port. This closes the browser vector and nothing else, which is exactly the vector that
+  made the documented precondition unsatisfiable.
+- A browser old enough to send neither `Origin` (on a no-cors GET) nor `Sec-Fetch-Site` is
+  not covered. Fetch Metadata is current in Chrome, Firefox and Safari, so this is a narrow
+  and shrinking residue rather than a hole with a name — but it is a residue, not zero.
+- The deeper defect is that a destructive operation is reachable by GET at all
+  (`?consume=true` unlinks). No header check is as strong as not accepting the request shape;
+  that is filed rather than fixed here, because changing the method is a separate requirement
+  and not this change to make silently.
+
 ## Accepted risk — pre-fix disclosure residue (2026-08-02)
 
 While `SEC-UTP4` was still unfixed, a branch documenting it in exploit-grade detail

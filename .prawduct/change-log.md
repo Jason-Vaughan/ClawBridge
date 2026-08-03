@@ -48,6 +48,37 @@
      derived view. Don't hand-edit them — add/update a tagged entry here and
      run `prawduct-hook regen-views`. -->
 
+## 2026-08-03: Gate cross-origin requests when the bridge runs without a token
+
+<!-- prawduct: chunks=01 | status=shipped | release=v2.0.0 | scope=cors-origin -->
+
+**Why:** `CRS-4T8K` proposed narrowing the wildcard CORS origin, and narrowing it would not
+have closed the hole. CORS decides whether a page may *read* a response, not whether the
+request is delivered — and `parseBody` ignores `Content-Type`, so a `text/plain` POST is a
+CORS-safelisted simple request that no preflight ever gates. A bare cross-origin GET is
+easier still, and `GET /v2/session/file?consume=true` unlinks the file it returns. A page the
+operator merely visited could therefore spawn agents and delete files on the host.
+
+**What:** while `BRIDGE_TOKEN` is empty, refuse before routing — and echo the allowed origin
+instead of `*`. The set is loopback plus whatever `CLAWBRIDGE_ALLOWED_ORIGINS` names exactly;
+absent, it widens nothing. Callers that send neither browser header — curl, containers, the
+packaged client — are untouched, and with a token set nothing changes.
+
+Two signals, not one. The first pass keyed only on `Origin`, and Critic caught that browsers
+append it only when the request mode is CORS or the method is not GET/HEAD: a no-cors GET
+(`<img src>`, `<script src>`, `<iframe>`, navigation) carries none and would have driven the
+consume-on-read route straight through, which was this change's own headline scenario. The
+test passed only because it set `Origin` by hand — `fetch()` does, an `<img>` tag never does.
+`Sec-Fetch-Site` now covers that case; `Origin` still decides when present, so a loopback dev
+UI on another port is not caught by its own `same-site` report.
+
+**Deviation from the plan:** the plan called for a `docs/bridge-v2-bug-index.md` row mapping
+this defect to its regression test. That index covers the numbered v2 broker bugs whose tests
+live in `regression.test.js`; the two prior security defects are recorded in the security
+model instead. Rather than misfile a server-level security control as a broker bug, the index
+gained a pointer to where security defects and their guards are recorded, and its stale
+"bugs #1–12" header (13 rows) became an invariant.
+
 ## 2026-08-03: Close the documented install path around the auth guard
 
 <!-- prawduct: chunks=01 | status=shipped | release=v2.0.0 -->

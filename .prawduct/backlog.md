@@ -125,7 +125,7 @@
   free in a major bump and expensive after one.
 
 - **[CRS-4T8K]** Wildcard CORS makes the unauthenticated escape hatch unsafe on any host with a browser
-  `effort: S · impact: M · area: security · source: critic · added: 2026-08-02 · status: open · stage: design`
+  `effort: M · impact: M · area: security · source: critic · added: 2026-08-02 · status: open · stage: ready · reviewed: 2026-08-03 · related: SEC-K4RD · refs: .prawduct/artifacts/security-model.md § Known gaps G5 "The header alone does not close it"`
 
   `bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and
   the preflight allows `POST` with an `Authorization` header. With `BRIDGE_TOKEN`
@@ -142,12 +142,43 @@
   unsatisfiable as stated. Documented now in both places plus a comment at the
   header, so an operator can at least evaluate the risk.
 
-  **Remaining decision (the reason this stays open):** narrow the origin when
-  running open — e.g. echo only `localhost`/`127.0.0.1` origins, or drop the
-  wildcard entirely when `TOKEN` is empty. Cheap, and it would make the
-  precondition satisfiable rather than merely documented. Not done here because
-  it changes CORS behavior for existing container callers, which is exactly the
-  kind of thing that should not ride along in someone else's PR.
+  **Corrected 2026-08-03 (discovery) — the remedy this item first proposed was
+  insufficient.** It read: "narrow the origin when running open — echo only
+  `localhost`/`127.0.0.1`, or drop the wildcard when `TOKEN` is empty." That
+  **would not have closed the hole**, and shipping it would have produced a fix
+  documenting itself as closing something it left open. `parseBody` does not
+  inspect `Content-Type`; it `JSON.parse`s whatever bytes arrive. So a visited
+  page can send `POST /v2/session/start` with `Content-Type: text/plain` — one of
+  the three CORS-safelisted types — which makes it a **simple request**: no
+  preflight, the browser delivers it, and the route acts on it. CORS then blocks
+  the page from *reading the response*, by which time the agent has spawned.
+  **CORS governs response readability, not request delivery**; it has never been
+  a CSRF defense.
+
+  **Decided remedy — both halves, and only the first is load-bearing:**
+
+  1. **Reject state-changing requests carrying a disallowed `Origin` header,
+     before routing.** This is the half that stops the simple-request path. It is
+     safe for non-browser callers because they send no `Origin` at all — curl,
+     containers, and the RentalClaw client are untouched, and that property is why
+     it can ship without a compatibility shim.
+  2. **Echo the allowed origin instead of `*`**, covering response readability and
+     making preflights refuse disallowed origins.
+
+  Both apply **only when `TOKEN` is empty**. With a token set the wildcard stays
+  and container callers see no change at all.
+
+  **Honest bound, stated so it is not over-claimed:** an `Origin` check trusts a
+  header — meaningful against browsers (they set it; page script cannot forge it)
+  and worthless against a direct attacker. In unauthenticated mode a direct
+  attacker needs no CSRF anyway; every route is already open to anyone who can
+  reach the port. This closes the browser vector and nothing else — which is
+  exactly the vector that made the documented precondition unsatisfiable.
+
+  **Effort is no longer `S`.** This is a small-to-medium cycle on a declared
+  `risk_surface` file (`bridge/server.js`), so it needs a build plan and a Critic
+  pass — not a drive-by. Still cheapest to land inside the 2.0.0 major bump, since
+  it is a behavior change to a public surface.
 
 - **[CFG-3QK7]** `.env` loader treats an explicitly-empty variable as absent
   `effort: S · impact: S · area: config · source: critic · added: 2026-08-02 · status: open · stage: ready`
@@ -211,11 +242,11 @@
   rewording a breaking change. Cheap now, not cheap in a year.
 
 - **[TST-RYHK]** No CI — every test level is manual
-  `effort: M · impact: L · area: tooling · source: reflection · added: 2026-08-02 · status: open · stage: ready`
+  `effort: M · impact: L · area: tooling · source: reflection · added: 2026-08-02 · status: open · stage: ready · reviewed: 2026-08-03`
 
   There is no `.github/workflows/` directory. The only workflow this repo ever
-  had was a stats counter, removed in `0c0a025`. So the 565-test suite, the
-  regression suite guarding all 13 known bugs, and the contract tests all run
+  had was a stats counter, removed in `0c0a025`. So the full test suite, the
+  regression tests guarding every known bug, and the contract tests all run
   only when a human remembers to run them — on a project whose primary fragility
   is that an upstream release can break it with no change on this side.
 
@@ -227,6 +258,42 @@
   `RUN_E2E=1` stays out of CI — it needs a real authenticated Claude Code
   binary. Optionally add eslint with a minimal ruleset to move the mechanical
   norms off Critic.
+
+- **[SEC-K4RD]** A destructive operation should not be reachable by GET — `GET /v2/session/file?consume=true` unlinks the file it returns
+  `effort: M · impact: M · area: security · source: critic · added: 2026-08-03 · status: open · stage: requirements · related: CRS-4T8K · refs: .prawduct/artifacts/security-model.md § Known gaps G5, .prawduct/artifacts/api-contract.md § Direction`
+
+  Surfaced 2026-08-03 while building the origin gate for `CRS-4T8K`.
+  `bridge/v2/routes.js` routes this on `method === 'GET'` (line ~469) and, when
+  `consume=true`, `unlink`s the file after reading it (~line 519).
+
+  **Why this route was the sharpest edge of the CORS/CSRF hole:** a `no-cors` GET
+  — `<img src>`, `<script src>`, `<iframe>`, a top-level navigation — needs no
+  preflight, no script, and carries **no `Origin` header**. Nothing about the
+  request shape signals "state change", so nothing along the browser path was
+  positioned to stop it.
+
+  **The origin gate does not fully close this.** It blocks the browser path via
+  `Sec-Fetch-Site`, but a header check is strictly weaker than not accepting the
+  request shape at all: any client that omits **both** `Origin` and
+  `Sec-Fetch-Site` reaches the route. That residual is small in practice (a
+  non-browser caller in unauthenticated mode already has every route), but the
+  defense is a header the server does not control, not the method semantics it
+  does.
+
+  **Fix shape:** require `POST` (or `DELETE`) for consume-on-read. That is a
+  **breaking change to the `/v2` surface** — narrowing what an existing path
+  accepts — and is therefore governed by the api-contract **Direction** norm,
+  which requires a new path-major (`/v3`) for removing or narrowing, never a
+  minor or patch. So the requirement is not just "change the method": it is a
+  `/v3` question, or an additive `POST` alias plus a deprecation window on the
+  GET form. That is why this is `stage: requirements`, not `ready`.
+
+  **Deliberately NOT folded into 2.0.0.** It is a separate requirement that
+  surfaced mid-build; inventing it into the origin-gate chunk would have been
+  exactly the silent-requirement failure the methodology names. Recorded here so
+  the decision is visible rather than lost — note that the 2.0.0 major bump was
+  the cheapest carrier for a breaking `/v2` change, so deferring it has a real
+  cost the owner should weigh (see `REL-BRS7`).
 
 ## Promoted
 
