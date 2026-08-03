@@ -91,76 +91,6 @@
      Prawduct onboarding. They are findings from reading the repo against its own
      docs — none were introduced by the onboarding itself. -->
 
-- **[SEC-UTP4]** Auth fails OPEN when `BRIDGE_TOKEN` is unset, on a `0.0.0.0` bind
-  `effort: S · impact: L · area: security · source: reflection · added: 2026-08-02 · status: shipped · closed-by: chunk-01-auth · related: EXP-9WQ2, CFG-3QK7 · reviewed: 2026-08-02`
-
-  **FIXED 2026-08-02.** Startup refuses a tokenless configuration; the opt-in is
-  exact-match `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true`; `checkAuth` returns the
-  opt-in rather than a bare `true` so an unset token cannot widen authority even
-  if the guard were bypassed; comparison is `crypto.timingSafeEqual` behind a
-  length guard; `/health` reports `auth.required` and `insecure`. 20 regression
-  tests in `bridge/__tests__/auth.test.js`. Critic `rev-20260803T000133Z-1918ce28`
-  traced every path and found no defect in the security substance.
-
-  `bridge/server.js:375` — `if (!TOKEN) return true; // no token = open (dev mode)`.
-  `TOKEN` is `process.env.BRIDGE_TOKEN || ''` (line 45), so a missing `.env`, a
-  typo'd variable, or a process launched without its environment silently
-  disables authentication on **every** route. Nothing warns; nothing refuses to
-  start; `/health` reports a healthy bridge.
-
-  `bridge/server.js:854` binds `0.0.0.0`, not loopback. Together these mean a
-  misconfigured bridge is an unauthenticated command-execution surface on the
-  local network — on a product whose entire purpose is supervising what an agent
-  is allowed to do to the host.
-
-  The asymmetry is the point: `bridge/v2/policy.js` resolves every unmatched
-  case to `require_review` because absent configuration must never widen
-  authority. The auth layer resolves absent configuration to *allow*. One of
-  these two is wrong, and it is not the policy engine. `README.md` already
-  documents `BRIDGE_TOKEN` as "Required" — the code just does not enforce it.
-
-  Also folded in: the token compare at line 378 is a plain `===` rather than
-  `crypto.timingSafeEqual`, despite `node:crypto` already being imported at line
-  333. Low severity on its own; free to fix while in the file.
-
-  **DECIDED 2026-08-02 (operator) — option (a).** Refuse to start without a
-  token unless an explicit, greppable env-var opt-in is set. Rejected: (b)
-  loopback-only bind when tokenless, (c) warn and continue.
-
-  Operator's reasoning, carried forward into the change: this makes the auth
-  layer obey the rule the policy engine already follows — absent configuration
-  must never widen authority — and `README.md:176` has listed `BRIDGE_TOKEN` as
-  **Required** since before the code existed. So this closes a gap between the
-  stated and actual contract rather than adding a new constraint.
-
-  Implementation notes:
-  - Name the opt-in so it cannot be set by accident and is trivial to grep for
-    in a deployment audit. It must read as a deliberate choice, not a tuning knob.
-  - Fold in the constant-time compare while in the file
-    (`crypto.timingSafeEqual`; `node:crypto` is already imported at line 333).
-  - Regression test alongside — this is a permanent invariant, so it belongs in
-    the suite the way every other fixed bug does.
-
-  **Treat as real work, not scaffolding**: read `/prawduct:methodology building`
-  first, and run `/prawduct:critic` when done. A fail-open auth fix is exactly
-  the shape of change where an independent pass earns its cost. Lands as its own
-  cycle, separate from the onboarding PR.
-
-  **Related: GitHub issue #15** — "[feature] Scoped bearer tokens — read vs write
-  separation", still OPEN, and adjacent to this. Two notes on sequencing. First,
-  this item is the smaller, unambiguous fix and should not wait on #15 — a token
-  that fails open is broken regardless of how many scopes it eventually has.
-  Second, #15 is not just a feature: shipping it flips
-  `classification.structural.has_multiple_party_types`, which re-opens the
-  single-privilege-tier reasoning in `security-model.md` and the scoped
-  acceptance in `SEC-PZ50`. Both are recorded as resting on that characteristic
-  being null.
-
-  **Blocks the GitHub Issues cutover** — see the disclosure note at the top of
-  this file. This repo is public and `@jason-vaughan/clawbridge` v1.9.1 is live on
-  npm, so importing this item verbatim would publish an unpatched auth bypass.
-  Fix first, migrate after.
-
 - **[CRS-4T8K]** Wildcard CORS makes the unauthenticated escape hatch unsafe on any host with a browser
   `effort: S · impact: M · area: security · source: critic · added: 2026-08-02 · status: open · stage: design`
 
@@ -185,57 +115,6 @@
   precondition satisfiable rather than merely documented. Not done here because
   it changes CORS behavior for existing container callers, which is exactly the
   kind of thing that should not ride along in someone else's PR.
-
-- **[EXP-9WQ2]** `/exports/*` crashes the whole bridge on any successful download
-  `effort: S · impact: L · area: security · source: critic · added: 2026-08-02 · status: shipped · closed-by: chunk-02-exports · related: SEC-UTP4 · reviewed: 2026-08-02`
-
-  **FIXED 2026-08-02, in the same changeset that found it.** Not deferred: writing
-  an unfixed vulnerability up in exploit-grade detail on a public repo is exactly
-  what this changeset's own learning forbids, and Critic blocked on the
-  contradiction. Fixing it turned the writeup into documentation of a closed bug.
-
-  `const disposition = 'inline'` — the ternary was dead (both branches identical)
-  and its condition referenced an undefined variable. New
-  `bridge/__tests__/exports.test.js` (25 tests) covers the download, the listing,
-  and the containment rules that were already correct. Verified the guard by
-  reintroducing the defect: 3 tests fail, including the process-still-alive one.
-
-  Both related gaps also closed: `EXPORTS_DIR` is now in the README env table,
-  documented with the warning that the routes serving it are unauthenticated; and
-  `/exports*` being public is recorded as a design fact in `security-model.md`
-  boundary 1a rather than left implied. Original finding below.
-
-  `bridge/server.js:653` references an undefined `ext`:
-
-  ```js
-  const disposition = ['.pdf','.png','.jpg','.jpeg','.svg'].includes(ext) ? 'inline' : 'inline';
-  ```
-
-  The only other `ext` bindings are local to `getContentType` (line 448) and the shutdown
-  handler (line 954). The statement sits **before the auth check and outside the request
-  `try/catch`**, so the `ReferenceError` is an uncaught exception in the HTTP server
-  callback — it does not 500, it **terminates the process**.
-
-  Verified: `GET /exports/report.txt` → `http_code=000`, log shows
-  `ReferenceError: ext is not defined at bridge/server.js:653:76` and the daemon exits.
-
-  Severity comes from the combination: `/exports/*` is unauthenticated by design, `GET
-  /exports` (also unauthenticated) lists the filenames so discovery is self-service, and
-  session state is in-memory so every live PTY session dies with the process. Under launchd
-  `KeepAlive` it is a repeatable remote DoS rather than a one-shot.
-
-  Why it survived: it fires only on a *successful* download. An empty or missing
-  `EXPORTS_DIR` makes `realpathSync` throw first and the handler 404s.
-
-  Fix: the ternary is dead — both branches are `'inline'` — so delete the expression:
-  `const disposition = 'inline';`. Needs `bridge/__tests__/exports.test.js`, which does not
-  exist; the route has **no coverage at all** today, which is why a crash on its happy path
-  went unnoticed. Cover the download, the traversal/symlink rejections, and the listing.
-
-  Two related gaps, same route: `EXPORTS_DIR` is undocumented (read at
-  `bridge/server.js:90`, absent from the README env table — same class as `DOC-8B84`), and
-  the unauthenticated `/exports*` surface was missing from `security-model.md`'s boundary
-  table. The boundary table is fixed; the doc and the crash are this item.
 
 - **[CFG-3QK7]** `.env` loader treats an explicitly-empty variable as absent
   `effort: S · impact: S · area: config · source: critic · added: 2026-08-02 · status: open · stage: ready`
@@ -315,37 +194,6 @@
   `RUN_E2E=1` stays out of CI — it needs a real authenticated Claude Code
   binary. Optionally add eslint with a minimal ruleset to move the mechanical
   norms off Critic.
-
-- **[DOC-8B84]** README drift — stale test counts and an undocumented env var
-  `effort: S · impact: S · area: docs · source: reflection · added: 2026-08-02 · status: shipped · closed-by: chunk-01-auth · related: EXP-9WQ2 · reviewed: 2026-08-02`
-
-  **FIXED 2026-08-02.** Counts corrected and made mutually consistent across
-  `README.md` and the maintainer guide (612 total across 24 files; 598 executed,
-  14 e2e skipped; `bridge/v2/__tests__` is 512 across 18). `PROJECTS_DIR` added to
-  the README env table alongside `CLAWBRIDGE_ALLOW_UNAUTHENTICATED`. A first pass
-  introduced *new* contradictions between the two docs — caught by Critic; the
-  numbers are now derived from the JUnit report per directory rather than eyeballed.
-  `EXPORTS_DIR` was undocumented; it landed in the env table with `EXP-9WQ2`.
-
-  Three small factual drifts found while reconciling:
-
-  1. `README.md` Testing section says "516 across 20 files"; the actual suite is
-     **565 total across 22 files — 551 executed, 14 e2e skipped by default, 0
-     failures** (verified 2026-08-02 via a JUnit run, independently reproduced).
-     Keep the existing "…skipped by default" framing when updating the numbers:
-     a bare total reads as executed, and a skipped file is exactly the kind of
-     thing that quietly becomes permanent.
-  2. The File Structure block says `__tests__/  # 18 test files, 469 tests`, and
-     `docs/bridge-v2-maintainer-guide.md` says "15 test files, 405+ tests" in two
-     places. Both are stale by the same drift.
-  3. `PROJECTS_DIR` is read by `bridge/server.js` and documented in the
-     maintainer guide's operational section, but is **missing from the README's
-     Environment Variables table** — the table a new operator actually reads.
-
-  (3) is the one that costs someone an hour. Per `boundary-patterns.md`, the
-  config interface has a standing rule: a documented variable must be read, and
-  a read variable must be documented. `CLAUDE_BIN` failed the first half of that
-  rule until 1.6.0; `PROJECTS_DIR` fails the second half now.
 
 ## Promoted
 
@@ -456,4 +304,156 @@
   also give TST-RYHK something worth running), or correct the claim. Leaving a
   false safety claim in the changelog is the one option that is not acceptable,
   because a reader of `examples/README.md` is entitled to trust it.
+
+- **[SEC-UTP4]** Auth fails OPEN when `BRIDGE_TOKEN` is unset, on a `0.0.0.0` bind
+  `effort: S · impact: L · area: security · source: reflection · added: 2026-08-02 · status: shipped · closed-by: chunk-01-auth · related: EXP-9WQ2, CFG-3QK7 · reviewed: 2026-08-02`
+
+  **FIXED 2026-08-02.** Startup refuses a tokenless configuration; the opt-in is
+  exact-match `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true`; `checkAuth` returns the
+  opt-in rather than a bare `true` so an unset token cannot widen authority even
+  if the guard were bypassed; comparison is `crypto.timingSafeEqual` behind a
+  length guard; `/health` reports `auth.required` and `insecure`. 20 regression
+  tests in `bridge/__tests__/auth.test.js`. Critic `rev-20260803T000133Z-1918ce28`
+  traced every path and found no defect in the security substance.
+
+  `bridge/server.js:375` — `if (!TOKEN) return true; // no token = open (dev mode)`.
+  `TOKEN` is `process.env.BRIDGE_TOKEN || ''` (line 45), so a missing `.env`, a
+  typo'd variable, or a process launched without its environment silently
+  disables authentication on **every** route. Nothing warns; nothing refuses to
+  start; `/health` reports a healthy bridge.
+
+  `bridge/server.js:854` binds `0.0.0.0`, not loopback. Together these mean a
+  misconfigured bridge is an unauthenticated command-execution surface on the
+  local network — on a product whose entire purpose is supervising what an agent
+  is allowed to do to the host.
+
+  The asymmetry is the point: `bridge/v2/policy.js` resolves every unmatched
+  case to `require_review` because absent configuration must never widen
+  authority. The auth layer resolves absent configuration to *allow*. One of
+  these two is wrong, and it is not the policy engine. `README.md` already
+  documents `BRIDGE_TOKEN` as "Required" — the code just does not enforce it.
+
+  Also folded in: the token compare at line 378 is a plain `===` rather than
+  `crypto.timingSafeEqual`, despite `node:crypto` already being imported at line
+  333. Low severity on its own; free to fix while in the file.
+
+  **DECIDED 2026-08-02 (operator) — option (a).** Refuse to start without a
+  token unless an explicit, greppable env-var opt-in is set. Rejected: (b)
+  loopback-only bind when tokenless, (c) warn and continue.
+
+  Operator's reasoning, carried forward into the change: this makes the auth
+  layer obey the rule the policy engine already follows — absent configuration
+  must never widen authority — and `README.md:176` has listed `BRIDGE_TOKEN` as
+  **Required** since before the code existed. So this closes a gap between the
+  stated and actual contract rather than adding a new constraint.
+
+  Implementation notes:
+  - Name the opt-in so it cannot be set by accident and is trivial to grep for
+    in a deployment audit. It must read as a deliberate choice, not a tuning knob.
+  - Fold in the constant-time compare while in the file
+    (`crypto.timingSafeEqual`; `node:crypto` is already imported at line 333).
+  - Regression test alongside — this is a permanent invariant, so it belongs in
+    the suite the way every other fixed bug does.
+
+  **Treat as real work, not scaffolding**: read `/prawduct:methodology building`
+  first, and run `/prawduct:critic` when done. A fail-open auth fix is exactly
+  the shape of change where an independent pass earns its cost. Lands as its own
+  cycle, separate from the onboarding PR.
+
+  **Related: GitHub issue #15** — "[feature] Scoped bearer tokens — read vs write
+  separation", still OPEN, and adjacent to this. Two notes on sequencing. First,
+  this item is the smaller, unambiguous fix and should not wait on #15 — a token
+  that fails open is broken regardless of how many scopes it eventually has.
+  Second, #15 is not just a feature: shipping it flips
+  `classification.structural.has_multiple_party_types`, which re-opens the
+  single-privilege-tier reasoning in `security-model.md` and the scoped
+  acceptance in `SEC-PZ50`. Both are recorded as resting on that characteristic
+  being null.
+
+  **Blocks the GitHub Issues cutover** — see the disclosure note at the top of
+  this file. This repo is public and `@jason-vaughan/clawbridge` v1.9.1 is live on
+  npm, so importing this item verbatim would publish an unpatched auth bypass.
+  Fix first, migrate after.
+
+- **[EXP-9WQ2]** `/exports/*` crashes the whole bridge on any successful download
+  `effort: S · impact: L · area: security · source: critic · added: 2026-08-02 · status: shipped · closed-by: chunk-02-exports · related: SEC-UTP4 · reviewed: 2026-08-02`
+
+  **FIXED 2026-08-02, in the same changeset that found it.** Not deferred: writing
+  an unfixed vulnerability up in exploit-grade detail on a public repo is exactly
+  what this changeset's own learning forbids, and Critic blocked on the
+  contradiction. Fixing it turned the writeup into documentation of a closed bug.
+
+  `const disposition = 'inline'` — the ternary was dead (both branches identical)
+  and its condition referenced an undefined variable. New
+  `bridge/__tests__/exports.test.js` (25 tests) covers the download, the listing,
+  and the containment rules that were already correct. Verified the guard by
+  reintroducing the defect: 3 tests fail, including the process-still-alive one.
+
+  Both related gaps also closed: `EXPORTS_DIR` is now in the README env table,
+  documented with the warning that the routes serving it are unauthenticated; and
+  `/exports*` being public is recorded as a design fact in `security-model.md`
+  boundary 1a rather than left implied. Original finding below.
+
+  `bridge/server.js:653` references an undefined `ext`:
+
+  ```js
+  const disposition = ['.pdf','.png','.jpg','.jpeg','.svg'].includes(ext) ? 'inline' : 'inline';
+  ```
+
+  The only other `ext` bindings are local to `getContentType` (line 448) and the shutdown
+  handler (line 954). The statement sits **before the auth check and outside the request
+  `try/catch`**, so the `ReferenceError` is an uncaught exception in the HTTP server
+  callback — it does not 500, it **terminates the process**.
+
+  Verified: `GET /exports/report.txt` → `http_code=000`, log shows
+  `ReferenceError: ext is not defined at bridge/server.js:653:76` and the daemon exits.
+
+  Severity comes from the combination: `/exports/*` is unauthenticated by design, `GET
+  /exports` (also unauthenticated) lists the filenames so discovery is self-service, and
+  session state is in-memory so every live PTY session dies with the process. Under launchd
+  `KeepAlive` it is a repeatable remote DoS rather than a one-shot.
+
+  Why it survived: it fires only on a *successful* download. An empty or missing
+  `EXPORTS_DIR` makes `realpathSync` throw first and the handler 404s.
+
+  Fix: the ternary is dead — both branches are `'inline'` — so delete the expression:
+  `const disposition = 'inline';`. Needs `bridge/__tests__/exports.test.js`, which does not
+  exist; the route has **no coverage at all** today, which is why a crash on its happy path
+  went unnoticed. Cover the download, the traversal/symlink rejections, and the listing.
+
+  Two related gaps, same route: `EXPORTS_DIR` is undocumented (read at
+  `bridge/server.js:90`, absent from the README env table — same class as `DOC-8B84`), and
+  the unauthenticated `/exports*` surface was missing from `security-model.md`'s boundary
+  table. The boundary table is fixed; the doc and the crash are this item.
+
+- **[DOC-8B84]** README drift — stale test counts and an undocumented env var
+  `effort: S · impact: S · area: docs · source: reflection · added: 2026-08-02 · status: shipped · closed-by: chunk-01-auth · related: EXP-9WQ2 · reviewed: 2026-08-02`
+
+  **FIXED 2026-08-02.** Counts corrected and made mutually consistent across
+  `README.md` and the maintainer guide (612 total across 24 files; 598 executed,
+  14 e2e skipped; `bridge/v2/__tests__` is 512 across 18). `PROJECTS_DIR` added to
+  the README env table alongside `CLAWBRIDGE_ALLOW_UNAUTHENTICATED`. A first pass
+  introduced *new* contradictions between the two docs — caught by Critic; the
+  numbers are now derived from the JUnit report per directory rather than eyeballed.
+  `EXPORTS_DIR` was undocumented; it landed in the env table with `EXP-9WQ2`.
+
+  Three small factual drifts found while reconciling:
+
+  1. `README.md` Testing section says "516 across 20 files"; the actual suite is
+     **565 total across 22 files — 551 executed, 14 e2e skipped by default, 0
+     failures** (verified 2026-08-02 via a JUnit run, independently reproduced).
+     Keep the existing "…skipped by default" framing when updating the numbers:
+     a bare total reads as executed, and a skipped file is exactly the kind of
+     thing that quietly becomes permanent.
+  2. The File Structure block says `__tests__/  # 18 test files, 469 tests`, and
+     `docs/bridge-v2-maintainer-guide.md` says "15 test files, 405+ tests" in two
+     places. Both are stale by the same drift.
+  3. `PROJECTS_DIR` is read by `bridge/server.js` and documented in the
+     maintainer guide's operational section, but is **missing from the README's
+     Environment Variables table** — the table a new operator actually reads.
+
+  (3) is the one that costs someone an hour. Per `boundary-patterns.md`, the
+  config interface has a standing rule: a documented variable must be read, and
+  a read variable must be documented. `CLAUDE_BIN` failed the first half of that
+  rule until 1.6.0; `PROJECTS_DIR` fails the second half now.
 

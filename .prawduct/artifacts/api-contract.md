@@ -21,6 +21,27 @@ Required because `classification.structural.exposes_programmatic_interface` is r
   `ptySpawnable` (1.8.0), `consume` (1.9.0), `bridge` (1.9.1) — each an optional addition
   defaulting to prior behavior.
 
+### Recorded departure — 2026-08-02, the `BRIDGE_TOKEN` startup requirement
+
+The norm above governs the **API surface contract**. Refusing to start without
+`BRIDGE_TOKEN` is a breaking change for a tokenless deployment and does **not** comply with
+it. That is a deliberate, recorded exception, not an oversight and not grounds for editing
+the norm:
+
+- The norm exists to protect consumers from *surprise*. It does not exist to preserve a
+  state that endangers them — the prior behavior served every route unauthenticated on a
+  `0.0.0.0` bind.
+- A fail-open default is a defect, and `README.md` had documented `BRIDGE_TOKEN` as
+  **Required** since before the code existed; the code was the side that disagreed.
+- The escape hatch (`CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true`) is what keeps this honest: no
+  deployment is left without a path forward, it just has to say so out loud.
+- It ships marked `BREAKING`, so the version bump carries the cost visibly rather than
+  arriving in a patch.
+
+Recorded here rather than in the build plan, because plans are retired at merge and a norm
+whose only recorded exception lives in a deleted file is a norm that will be misread next
+time.
+
 ## Canonical sources — do not duplicate them here
 
 | Surface | Canonical spec |

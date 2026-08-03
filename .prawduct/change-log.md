@@ -50,7 +50,7 @@
 
 ## 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
 
-<!-- prawduct: chunks=01,02 -->
+<!-- prawduct: chunks=01,02 | status=shipped | release=v2.0.0 -->
 
 **Why:** the bridge treated an unset `BRIDGE_TOKEN` as "authentication optional" and served
 every route on a `0.0.0.0` bind while `/health` reported healthy — the auth layer resolving
