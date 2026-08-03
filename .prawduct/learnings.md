@@ -14,6 +14,21 @@ documenting it, or write the finding at **severity-without-reproduction** level 
 of defect, how bad, where it is tracked) and keep file:line refs and the exploitable
 mechanism in a local note until the fix ships.
 
+**The rule attaches to writing the mechanism down, not to the release checklist.** Added
+2026-08-03 after breaking this rule *one commit after deliberately applying it*. The release
+sequence was reordered on purpose — `npm publish` before `git push`, so the fix for the 1.9.1
+defects was available before their recipes went public — and then, minutes later, a newly-found
+defect (`CRS-8N3P`, unfixed in both published versions) was written into `.prawduct/backlog.md`
+with file:line refs and its mechanism, and pushed to the same public repo.
+
+The rule was salient while making a big, obviously-security-shaped decision, and invisible
+during a routine backlog write. So the trigger cannot be "when releasing" — it has to be **at
+the moment you type a mechanism or a file:line for a defect that is not yet fixed in what
+users can install**, whatever file you are typing it into. Backlog entries, plan bodies and
+review findings all reach the public repo the same way source does. Ask: *is this fixed in
+what npm serves right now?* If not, severity-without-reproduction, and the mechanism goes in a
+local note.
+
 **And: branch deletion is not redaction.** Deleting a remote branch removes the ref, not
 the objects. Commits stay fetchable by SHA on GitHub until a server-side GC you cannot
 trigger and that has no published schedule. Once pushed, no git operation available to you

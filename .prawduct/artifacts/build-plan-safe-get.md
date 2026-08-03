@@ -139,7 +139,8 @@ One handler, one decision — no second dispatch path, per the one-implementatio
     including `consumed:false` on a failed unlink so bytes are never lost.
   - `GET` + `consume=true` → `405` with `Allow: POST` and `{ error: … }` naming the new
     method, so the migration hint is in the response rather than only in the changelog.
-  - `/v2/api-docs`: the self-describing entry updated — it is the contract a consumer reads at
+  - `bridge/v2/routes.js` `getApiDocs()`: the self-describing `/v2/api-docs` entry updated —
+    it is the contract a consumer reads at
     runtime, so leaving it stale would document the removed behavior as current.
   - `CHANGELOG.md` under `## [2.0.0]`, marked `BREAKING`, naming TangleClaw's capture-back as
     the known affected caller and the one-line migration.

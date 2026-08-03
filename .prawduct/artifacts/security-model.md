@@ -357,6 +357,41 @@ The compatibility half — *leaves the plain read untouched* and *still reads on
 consume* — stays green under both, which is what shows the change is scoped to the consuming
 form rather than to the route.
 
+## Accepted risk — `CRS-8N3P` disclosed before it was fixed (2026-08-03)
+
+**What happened.** `CRS-8N3P` — wildcard CORS exposing `/health`, `/exports` and `/exports/*`
+cross-origin even when `BRIDGE_TOKEN` is set, because those handlers run ahead of the auth
+check — was written into `.prawduct/backlog.md` with file:line references and the mechanism
+spelled out, and pushed to this **public** repo, while unfixed in 1.9.1 *and* in the 2.0.0 that
+had just been published. That is a direct violation of this project's own rule ("On a public
+repo, fix before documenting a vulnerability" in `learnings.md`), committed **one commit after**
+that same rule had been deliberately applied to sequence the npm publish ahead of the branch
+push. The rule was being followed and broken within the same hour, which is the part worth
+recording: applying a rule once does not install it.
+
+**Why it is accepted rather than remediated.** There is no undo. `8070d4a` is a named, listed
+ref on a public repo; deleting or rewriting it removes the ref, not the objects, which is
+recorded in this same learning from the 2026-08-02 incident. The only real questions were
+whether to ship a rushed fix or to record the acceptance, and the owner chose the latter on
+2026-08-03.
+
+**Severity, bounded by a verified fact rather than an assumption.** The first read of this was
+that exported *session transcripts* — documented here as containing raw PTY output including
+`.env` contents and keys — were reachable. That is wrong: session snapshots persist to
+`bridge/.session-history` (`HISTORY_DIR`), not to `EXPORTS_DIR`. `EXPORTS_DIR` is
+operator-curated, and `README.md` has always instructed operators to point it at "a directory
+you are content to publish to anyone who can reach the port". So the real escalation is
+narrower than it first appeared: **from "anyone who can reach the port" to "any page the
+operator visits"** — which still matters, because a firewalled port is not reachable while the
+operator's own browser is, but it is not a secrets leak and it does not contradict the
+instruction operators were already given.
+
+**What remains open.** The behavior itself. `CRS-8N3P` is `stage: design` because the fix is a
+genuine choice, and one of the options is a *fourth* departure from the `/v2` compatibility
+norm — which `api-contract.md` pre-commits should trigger amending that norm rather than
+departing from it again. Deciding that under disclosure pressure is exactly what this
+acceptance exists to avoid; it gets its own cycle.
+
 ## Accepted risk — pre-fix disclosure residue (2026-08-02)
 
 While `SEC-UTP4` was still unfixed, a branch documenting it in exploit-grade detail
