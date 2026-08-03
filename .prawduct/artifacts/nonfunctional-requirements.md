@@ -20,7 +20,7 @@ that a permission is detected, surfaced, and answered correctly — not quickly.
 | Unknown-permission cooldown | 2 s after a parser reset | Suppresses menu remnants that would otherwise register as a fresh prompt. |
 | Prompt timeout | 5 min default | Then auto-**deny** and resume — fail-closed, not fail-open. |
 | Session timeout | 30 min default | SIGINT, then SIGKILL after a 5 s grace period. |
-| Full test suite | ~9 s; 612 total, **598 executed, 14 e2e skipped** | Fast enough that "run the tests" is never the reason a change skipped them. The 14 skipped are the live-PTY e2e file, gated behind `RUN_E2E=1` — counted separately on purpose, because a skipped suite that gets reported as a passing one is how a gate quietly becomes permanent. |
+| Full test suite | ~9 s; **every test executed except the 14-test live-PTY e2e file** | Fast enough that "run the tests" is never the reason a change skipped them. The 14 skipped are the live-PTY e2e file, gated behind `RUN_E2E=1` — counted separately on purpose, because a skipped suite that gets reported as a passing one is how a gate quietly becomes permanent. |
 
 `peek` is designed to be polled frequently and cheaply; `output` supports `waitMs` long-poll
 so a caller need not busy-wait.

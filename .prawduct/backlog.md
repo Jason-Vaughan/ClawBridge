@@ -121,67 +121,15 @@
   conflict risks silently dropping a changelog entry. If the release slips more
   than a few days, delete the branch and re-cut.
 
-  Open decision riding with it: `CRS-4T8K` (narrow CORS when unauthenticated) is
-  free in a major bump and expensive after one.
-
-- **[CRS-4T8K]** Wildcard CORS makes the unauthenticated escape hatch unsafe on any host with a browser
-  `effort: M · impact: M · area: security · source: critic · added: 2026-08-02 · status: open · stage: ready · reviewed: 2026-08-03 · related: SEC-K4RD · refs: .prawduct/artifacts/security-model.md § Known gaps G5 "The header alone does not close it"`
-
-  `bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and
-  the preflight allows `POST` with an `Authorization` header. With `BRIDGE_TOKEN`
-  set this is a nuisance rather than a hole — a random page has no credential to
-  send. **Under `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` it is a hole**: any page
-  the operator visits can cross-origin `POST /v2/session/start` against
-  `localhost` and spawn an agent with shell access to the host.
-
-  Raised three times by Critic before being acted on, because each pass I treated
-  it as a security-behavior decision belonging to the owner and therefore not
-  mine to touch. That was half right: changing the header is the owner's, but the
-  *precondition I had written into the startup warning and the README* — "only if
-  this port is genuinely unreachable by anyone else" — was mine, and it was
-  unsatisfiable as stated. Documented now in both places plus a comment at the
-  header, so an operator can at least evaluate the risk.
-
-  **Corrected 2026-08-03 (discovery) — the remedy this item first proposed was
-  insufficient.** It read: "narrow the origin when running open — echo only
-  `localhost`/`127.0.0.1`, or drop the wildcard when `TOKEN` is empty." That
-  **would not have closed the hole**, and shipping it would have produced a fix
-  documenting itself as closing something it left open. `parseBody` does not
-  inspect `Content-Type`; it `JSON.parse`s whatever bytes arrive. So a visited
-  page can send `POST /v2/session/start` with `Content-Type: text/plain` — one of
-  the three CORS-safelisted types — which makes it a **simple request**: no
-  preflight, the browser delivers it, and the route acts on it. CORS then blocks
-  the page from *reading the response*, by which time the agent has spawned.
-  **CORS governs response readability, not request delivery**; it has never been
-  a CSRF defense.
-
-  **Decided remedy — both halves, and only the first is load-bearing:**
-
-  1. **Reject state-changing requests carrying a disallowed `Origin` header,
-     before routing.** This is the half that stops the simple-request path. It is
-     safe for non-browser callers because they send no `Origin` at all — curl,
-     containers, and the RentalClaw client are untouched, and that property is why
-     it can ship without a compatibility shim.
-  2. **Echo the allowed origin instead of `*`**, covering response readability and
-     making preflights refuse disallowed origins.
-
-  Both apply **only when `TOKEN` is empty**. With a token set the wildcard stays
-  and container callers see no change at all.
-
-  **Honest bound, stated so it is not over-claimed:** an `Origin` check trusts a
-  header — meaningful against browsers (they set it; page script cannot forge it)
-  and worthless against a direct attacker. In unauthenticated mode a direct
-  attacker needs no CSRF anyway; every route is already open to anyone who can
-  reach the port. This closes the browser vector and nothing else — which is
-  exactly the vector that made the documented precondition unsatisfiable.
-
-  **Effort is no longer `S`.** This is a small-to-medium cycle on a declared
-  `risk_surface` file (`bridge/server.js`), so it needs a build plan and a Critic
-  pass — not a drive-by. Still cheapest to land inside the 2.0.0 major bump, since
-  it is a behavior change to a public surface.
+  The decision that was riding with it — `CRS-4T8K` (narrow CORS when
+  unauthenticated) — **shipped 2026-08-03 into `release/2.0.0`** (scope
+  `cors-origin`, archived), which is why it belonged in a major bump rather than
+  after one. `release/2.0.0` therefore carries more than the prep commit — the
+  origin gate is a second breaking change, already written into the 2.0.0
+  CHANGELOG and release notes. The publish steps above are otherwise unchanged.
 
 - **[CFG-3QK7]** `.env` loader treats an explicitly-empty variable as absent
-  `effort: S · impact: S · area: config · source: critic · added: 2026-08-02 · status: open · stage: ready`
+  `effort: S · impact: M · area: config · source: critic · added: 2026-08-02 · status: open · stage: ready · reviewed: 2026-08-03`
 
   `bridge/server.js` loads `bridge/.env` with `if (!process.env[key]) process.env[key] = val`.
   A variable a caller deliberately set to `''` is falsy, so `.env` silently overrides it —
@@ -203,6 +151,19 @@
   Consequence while open: `bridge/__tests__/auth.test.js` throws a diagnostic error at load
   if a real `bridge/.env` defines `BRIDGE_TOKEN`, because the loader would backfill a token
   into the deliberately-tokenless cases and they would fail inexplicably.
+
+  **Impact raised S → M (2026-08-03).** The original `S` predates
+  `CLAWBRIDGE_ALLOWED_ORIGINS`, which the `cors-origin` work introduced and which
+  this same loader now governs: `bridge/server.js:37` is `if (!process.env[key])`,
+  and line 66 reads that variable afterwards. The empty-vs-absent conflation is
+  therefore **authority-gating**, not cosmetic config. An operator who
+  deliberately sets `CLAWBRIDGE_ALLOWED_ORIGINS=` — empty meaning "no additional
+  origins beyond loopback" — has it silently backfilled from `bridge/.env` if
+  that file defines it, widening the browser-reachable origin set with no trace.
+  Same shape as the `BRIDGE_TOKEN` case in `SEC-UTP4`, now on the variable that
+  stands between a visited page and the bridge.
+
+  Re-rating and rationale only — scope, fix shape, and `stage: ready` unchanged.
 
 - **[DOC-I9MN]** `.claude/priming/clawbridge-toolmount-fix.md` publishes habitat operational detail
   `effort: S · impact: M · area: docs · source: critic · added: 2026-08-02 · status: open · stage: design`
@@ -557,3 +518,75 @@
   a read variable must be documented. `CLAUDE_BIN` failed the first half of that
   rule until 1.6.0; `PROJECTS_DIR` fails the second half now.
 
+- **[CRS-4T8K]** Wildcard CORS makes the unauthenticated escape hatch unsafe on any host with a browser
+  `effort: M · impact: M · area: security · source: critic · added: 2026-08-02 · status: shipped · closed-by: cors-origin · stage: ready · reviewed: 2026-08-03 · related: SEC-K4RD · refs: .prawduct/artifacts/security-model.md § Known gaps G5 "The header alone does not close it"`
+
+  **SHIPPED 2026-08-03 — build plan scope `cors-origin` on `release/2.0.0`**
+  (commits `48461f0` and `41d70fc`, plus the cumulative-review fixes). Both
+  decided halves landed: a pre-routing origin gate reading `Origin` with a
+  `Sec-Fetch-Site` fallback, and the allowed origin echoed in place of `*` —
+  both only while `BRIDGE_TOKEN` is empty, so token-set deployments and
+  non-browser callers are untouched.
+
+  **The correction is this item's most useful legacy.** As first written, this
+  item's stated remedy was to narrow the header — and discovery found that
+  insufficient *before any code was written*. Shipping it would have produced a
+  fix documenting itself as closing something it left open. The requirement was
+  rewritten first; the corrected analysis is preserved verbatim below. An item's
+  proposed remedy is a hypothesis, not a spec, and discovery is where it gets
+  falsified.
+
+  Original finding and the 2026-08-03 correction follow, unchanged.
+
+  `bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and
+  the preflight allows `POST` with an `Authorization` header. With `BRIDGE_TOKEN`
+  set this is a nuisance rather than a hole — a random page has no credential to
+  send. **Under `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` it is a hole**: any page
+  the operator visits can cross-origin `POST /v2/session/start` against
+  `localhost` and spawn an agent with shell access to the host.
+
+  Raised three times by Critic before being acted on, because each pass I treated
+  it as a security-behavior decision belonging to the owner and therefore not
+  mine to touch. That was half right: changing the header is the owner's, but the
+  *precondition I had written into the startup warning and the README* — "only if
+  this port is genuinely unreachable by anyone else" — was mine, and it was
+  unsatisfiable as stated. Documented now in both places plus a comment at the
+  header, so an operator can at least evaluate the risk.
+
+  **Corrected 2026-08-03 (discovery) — the remedy this item first proposed was
+  insufficient.** It read: "narrow the origin when running open — echo only
+  `localhost`/`127.0.0.1`, or drop the wildcard when `TOKEN` is empty." That
+  **would not have closed the hole**, and shipping it would have produced a fix
+  documenting itself as closing something it left open. `parseBody` does not
+  inspect `Content-Type`; it `JSON.parse`s whatever bytes arrive. So a visited
+  page can send `POST /v2/session/start` with `Content-Type: text/plain` — one of
+  the three CORS-safelisted types — which makes it a **simple request**: no
+  preflight, the browser delivers it, and the route acts on it. CORS then blocks
+  the page from *reading the response*, by which time the agent has spawned.
+  **CORS governs response readability, not request delivery**; it has never been
+  a CSRF defense.
+
+  **Decided remedy — both halves, and only the first is load-bearing:**
+
+  1. **Reject state-changing requests carrying a disallowed `Origin` header,
+     before routing.** This is the half that stops the simple-request path. It is
+     safe for non-browser callers because they send no `Origin` at all — curl,
+     containers, and the RentalClaw client are untouched, and that property is why
+     it can ship without a compatibility shim.
+  2. **Echo the allowed origin instead of `*`**, covering response readability and
+     making preflights refuse disallowed origins.
+
+  Both apply **only when `TOKEN` is empty**. With a token set the wildcard stays
+  and container callers see no change at all.
+
+  **Honest bound, stated so it is not over-claimed:** an `Origin` check trusts a
+  header — meaningful against browsers (they set it; page script cannot forge it)
+  and worthless against a direct attacker. In unauthenticated mode a direct
+  attacker needs no CSRF anyway; every route is already open to anyone who can
+  reach the port. This closes the browser vector and nothing else — which is
+  exactly the vector that made the documented precondition unsatisfiable.
+
+  **Effort is no longer `S`.** This is a small-to-medium cycle on a declared
+  `risk_surface` file (`bridge/server.js`), so it needs a build plan and a Critic
+  pass — not a drive-by. Still cheapest to land inside the 2.0.0 major bump, since
+  it is a behavior change to a public surface.

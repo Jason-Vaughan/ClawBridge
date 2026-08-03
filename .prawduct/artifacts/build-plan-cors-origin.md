@@ -15,6 +15,10 @@ governed_by:
       - "cursor positions stay stable and monotonic → inapplicable because this plan touches no event-log or cursor code; the gate runs ahead of routing and returns before any reader is reached"
       - "extension guarantees are contract, not implementation (init timing, error isolation) → inapplicable because the gate neither changes when init runs relative to listen() nor sits between the extension and the broker"
       - "reserved namespaces (/v2, /api/*, /health, /projects) → conforms — no route is added, moved, or claimed; the gate is a pre-routing filter"
+      - "versioning: path-major on /v2/*, unversioned v1 infrastructure routes, npm semver as the finer channel → conforms — no new route and no path-major; the npm bump is the major this narrowing rides, per the recorded departure"
+      - "error model: { error: '<human-readable message>' } with the HTTP status carrying semantics → conforms — refusals return 403 with 'Origin not allowed' / 'Cross-site request not allowed' in that exact shape, adding no new error field"
+      - "/health additions are additive, no field renamed, removed or retyped → conforms — `cors` is new and every pre-existing field keeps its name and type; recorded in api-contract.md § /health additions, 2026-08-03"
+      - "GET /exports shape (size: number|null) → inapplicable because this plan changes no response body; the gate returns before any handler builds one"
   - artifact: project-preferences
     dispositions:
       - "named regression test for every known bug → conforms; the index the norm named was split by defect kind under a recorded, vetoable decision in project-preferences.md — numbered broker bugs stay in docs/bridge-v2-bug-index.md, security defects map from security-model.md § Known gaps, and this one names bridge/__tests__/auth.test.js"

@@ -99,6 +99,21 @@ is not a "remember to be thorough" rule — it is a rule about *where the check 
    Take the literal words of the report and ask what would falsify *them*.
 3. **After finding one instance, grep for the shape before declaring the class closed.** A
    reproduction that reproduces feels like completeness. It is evidence about one path.
+4. **Enumeration has an axis, and aiming it wrong feels identical to aiming it right.** Added
+   2026-08-03 after three instances in a single work cycle. Building the cross-origin gate I
+   enumerated *routes* and checked each was still reachable — a real enumeration, non-empty
+   meta-assertion, properly falsified, six tests red on demand. Worthless: the defect lived on
+   **request shape**, and every one of those six sent an `Origin` header. The shape that
+   mattered was the no-cors `GET` (`<img src>`), which sends none, and which was the easiest
+   attack in the threat model the change was named for. Later the same cycle, the
+   malformed-allowlist check enumerated one spelling — a trailing slash — that no browser can
+   send, and so missed `null`, which browsers really do send; that entry was reported to
+   operators as inert while the gate honored it.
+
+   So after "did I enumerate?" ask **"over what?"** — and take the axis from the *claim*, not
+   from the code in front of you. "No cross-origin browser request can reach a handler" ranges
+   over the ways a browser can issue a request, not over which routes exist. If the axis can't
+   be named in one phrase, the claim is still too vague to test.
 
 **How this was learned:** four times in the 2026-08-02 session, an independent reviewer
 caught the same failure — the specific thing done and reported as the general thing.

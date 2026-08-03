@@ -402,7 +402,7 @@ Set `CLAWBRIDGE_TOOLS_MODULE` to the absolute path of a Node module that exports
 ## Testing
 
 ```bash
-# Run all tests (612 across 24 files; 598 executed, 14 e2e skipped by default)
+# Run all tests (the 14 live-PTY e2e tests are skipped unless RUN_E2E=1)
 npm test
 
 # Run with live E2E (requires Claude Code installed)

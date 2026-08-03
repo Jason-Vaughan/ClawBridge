@@ -168,6 +168,24 @@ repo already holds that line: the tools-extension contract states an extension f
 flips root `ok`. Flipping it for an opt-in state would also page an operator about something
 they explicitly asked for. Monitor on `insecure`, which exists to be alerted on.
 
+### `/health` additions, 2026-08-03 (`CRS-4T8K`)
+
+Additive, per § Direction — no existing field renamed, removed, or retyped:
+
+- `cors: { mode: 'gated' | 'wildcard' }` — always present. `wildcard` carries a `reason`;
+  `gated` carries `loopbackAllowed: boolean` and `additionalOrigins: string[]`.
+- `cors.invalidOrigins: string[]` and `cors.warning: string` — present **only** when
+  `CLAWBRIDGE_ALLOWED_ORIGINS` holds entries that are not serialized origins.
+
+Reported in **both** modes on purpose. An absent key and a key reading `wildcard` are
+different facts, and only one of them answers an operator asking whether this bridge is
+gated — an inference from absence is exactly what this field exists to remove.
+
+`additionalOrigins` lists only origins the gate will actually honour; anything unmatchable
+appears under `invalidOrigins` instead. The two are disjoint, and the gate matches against the
+same effective set it reports here — a health report that disagreed with the gate about who is
+allowed in would be worse than no report, since an operator would act on it.
+
 ## OWASP API design review
 
 The surface carries authentication and returns sensitive data, so the *design*-level checks

@@ -84,8 +84,15 @@ const MALFORMED_ALLOWED_ORIGINS = [...ALLOWED_ORIGINS].filter((candidate) => {
     return true;
   }
 });
+// The set the gate actually consults. It must be this one and not ALLOWED_ORIGINS:
+// `null` is a real Origin header value (sandboxed iframe, file:// page) and also
+// fails to parse as a URL, so it lands in MALFORMED and is reported inert on
+// /health — while a raw Set lookup would still honour it. Matching against
+// anything reported inert would make the gate and its own health report disagree
+// about who is allowed in.
 const EFFECTIVE_ALLOWED_ORIGINS = [...ALLOWED_ORIGINS]
   .filter(o => !MALFORMED_ALLOWED_ORIGINS.includes(o));
+const EFFECTIVE_ALLOWED_ORIGIN_SET = new Set(EFFECTIVE_ALLOWED_ORIGINS);
 const HOME = process.env.HOME || '';
 const PROJECTS_DIR = process.env.PROJECTS_DIR || path.join(HOME, 'projects');
 const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
@@ -449,7 +456,7 @@ function isLoopbackOrigin(origin) {
  * @returns {boolean}
  */
 function isOriginAllowed(origin) {
-  return ALLOWED_ORIGINS.has(origin) || isLoopbackOrigin(origin);
+  return EFFECTIVE_ALLOWED_ORIGIN_SET.has(origin) || isLoopbackOrigin(origin);
 }
 
 /**
@@ -778,6 +785,14 @@ const server = http.createServer(async (req, res) => {
   if (refusal !== null) {
     // Ahead of the OPTIONS reply below, so a refused origin's preflight fails
     // too, and ahead of the unauthenticated /exports handlers further down.
+    //
+    // Logged for the same reason 401s are, and the reason is stronger here: a
+    // refusal is either someone probing, or the operator's own UI being turned
+    // away by an allowlist entry that is *well-formed but wrong* — a right host
+    // on the wrong port raises no boot warning and shows on /health as active,
+    // so this line is the only thing that names the origin actually presented.
+    console.warn(`[bridge] 403 ${method} ${pathname} origin=${origin ?? '(none)'} `
+      + `sec-fetch-site=${fetchSite ?? '(none)'} from ${req.socket?.remoteAddress ?? 'unknown'}`);
     return json(res, 403, { error: refusal });
   }
 

@@ -6,7 +6,7 @@ the safety model is not), and the code implements *mechanisms*, but nothing reco
 two. Doing so surfaced three gaps; three more followed — one from self-review during the
 `SEC-UTP4` fix, two from Critic review of that fix. All six are recorded below. They run
 G1-G4, G6, G5: G6 sits beside G4 because they are the same defect class, and G5 is last
-because it is the only one still open.
+because it was the last to close.
 
 ## What this product is defending
 
@@ -57,9 +57,10 @@ containment boundary has misread it.
 
 G1-G3 came from reconciling the code against the stated posture; G4 came from self-review
 during the G1 fix; G6 and G5 from Critic review of that fix. None were introduced by this
-onboarding. G1, G3, G4's crash and G6 are fixed; G2 is an owner-accepted risk; G5 is documented
-and open (`CRS-4T8K`). **This register is not closed** — it is what has been examined so
-far.
+onboarding. G1, G3, G4's crash, G6 and G5 are fixed; G2 is an owner-accepted risk. **This
+register is not closed** — it is what has been examined so far, and every entry keeps its
+description of what was wrong even after the fix, because the next defect of that class is
+usually recognised by its shape.
 
 ### G1 — Auth fails OPEN when the token is unset · **FIXED 2026-08-02** · `SEC-UTP4`
 

@@ -900,6 +900,57 @@ describe('/health reports the CORS posture, so the gate cannot regress unobserve
     expect(res.body.cors.warning).toContain('never match');
   });
 
+  it('does not honour an allowlist entry it reports as inert', async () => {
+    // `null` is the case that makes this more than bookkeeping: it fails to
+    // parse as a URL, so it is classified malformed and /health tells the
+    // operator it can never match — but it IS a real Origin header value, sent
+    // by sandboxed iframes and file:// pages. Matching it against the raw set
+    // would have the gate admitting exactly what its own health report calls
+    // inert. The trailing-slash case cannot catch this: no browser can send it.
+    const bridge = await spawnBridge({
+      token: '',
+      extraEnv: {
+        CLAWBRIDGE_ALLOW_UNAUTHENTICATED: 'true',
+        CLAWBRIDGE_ALLOWED_ORIGINS: 'null',
+      },
+    });
+    await bridge.waitForListening();
+
+    const health = await httpSend(bridge.port, { path: '/health' });
+    expect(health.body.cors.invalidOrigins).toEqual(['null']);
+    expect(health.body.cors.additionalOrigins).toEqual([]);
+
+    // ...and the gate must agree with that report.
+    const res = await httpSend(bridge.port, {
+      path: '/health',
+      headers: { 'Origin': 'null' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('logs a refusal, naming the origin actually presented', async () => {
+    // A well-formed but wrong entry — right host, wrong port — raises no boot
+    // warning and shows on /health as active, so the log line is the only place
+    // the operator can see which origin was really turned away.
+    const bridge = await spawnBridge({
+      token: '',
+      extraEnv: {
+        CLAWBRIDGE_ALLOW_UNAUTHENTICATED: 'true',
+        CLAWBRIDGE_ALLOWED_ORIGINS: 'https://ui.example:8443',
+      },
+    });
+    await bridge.waitForListening();
+
+    await httpSend(bridge.port, {
+      path: '/health',
+      headers: { 'Origin': 'https://ui.example:9999' },
+    });
+    await bridge.waitForOutput('[bridge] 403');
+
+    const { stdout, stderr } = bridge.getOutput();
+    expect(stdout + stderr).toContain('origin=https://ui.example:9999');
+  });
+
   it('refuses an origin that was configured in an unmatchable spelling', async () => {
     // The report and the behavior have to agree: /health says it never matches,
     // so a request from the spelling the operator *meant* must still be refused.
