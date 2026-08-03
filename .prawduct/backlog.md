@@ -256,6 +256,49 @@
   the cheapest carrier for a breaking `/v2` change, so deferring it has a real
   cost the owner should weigh (see `REL-BRS7`).
 
+- **[UPS-7Z4M]** prawduct-upstream: `audit-learnings` `run_sentinel` hardcodes pytest, so learnings sentinels are inert in this Node/vitest repo
+  `effort: S · impact: S · area: prawduct-upstream · source: critic · added: 2026-08-03 · status: open · stage: ready`
+
+  **Verified at source** in the installed plugin: `lib/audit_learnings_cmd.py:166`
+  runs `["python3", "-m", "pytest", sentinel, "-q"]` and never consults the
+  `test_command` declared in `project-state.yaml`.
+
+  **Consequence here:** every sentinel check reports `No module named pytest`, so
+  a sentinel-protected learning can never be retired through the intended
+  lifecycle, and `audit-learnings` emits a standing `errors` entry telling the
+  operator to fix a test that passes (`bridge/__tests__/auth.test.js` is green,
+  55 tests).
+
+  **Explicitly NOT a retirement risk.** `sentinel_passed is False` routes to
+  `errors` at `:301`, and only `True` reaches the retirement path at `:314` — it
+  fails safe. An earlier reading of mine claimed otherwise and was wrong.
+
+  Filed upstream as https://github.com/brookstalley/prawduct/issues/573,
+  cross-referenced to their #154 (closed; fixes the interpreter
+  `python3` → `sys.executable` but still hardcodes pytest) and #294 (open
+  umbrella on non-Python environments).
+
+  **Nothing to do in this repo** except ignore that error line until upstream
+  lands a fix. The item exists so the noise is explained rather than
+  rediscovered.
+
+- **[GOV-2H9K]** `learnings.md` carries narrative bodies in what prawduct treats as the rule index
+  `effort: M · impact: S · area: governance · source: critic · added: 2026-08-03 · status: open · stage: design`
+
+  `record-lint` raises `learnings-entry-shape` on every narrative line. The
+  upstream convention is that `learnings.md` holds When-X-do-Y-because-Z rules,
+  with narrative moved to `learnings-detail.md` — which does not exist here.
+
+  This is **pre-existing and file-wide**: every entry has a narrative body, not
+  just the one added 2026-08-03. So a compaction is a deliberate restructuring of
+  a governance artifact, not a drive-by.
+
+  **Note the counterweight before acting:** upstream issue #350 records
+  `learnings-detail.md` as an unbounded sink with no route out, so splitting may
+  trade one problem for another. Decide whether this repo adopts the split at all
+  before doing it — that decision is the work, which is why this is
+  `stage: design`.
+
 ## Promoted
 
 <!-- Items currently being addressed in an active build plan. /backlog pick
