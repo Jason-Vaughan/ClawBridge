@@ -707,7 +707,7 @@ const server = http.createServer(async (req, res) => {
       'Content-Length': content.length
     });
     return res.end(content);
-   } catch (err) { // prawduct:allow prawduct/broad-except -- unauthenticated pre-auth handler; an uncaught sync-fs throw here kills the daemon
+   } catch (err) { // prawduct:allow prawduct/broad-except -- any sync-fs failure on this unauthenticated route becomes a specific 500 + log line rather than the outer wrapper's generic one
     console.error(`[bridge] /exports serve failed for ${pathname}:`, err);
     if (!res.headersSent) return json(res, 500, { error: 'Export read failed' });
     return res.destroy(err);
@@ -716,7 +716,8 @@ const server = http.createServer(async (req, res) => {
 
   // GET /exports — list available exports (no auth). Same reasoning as above:
   // readdirSync/statSync can throw (permissions, or a file rotated away between
-  // the readdir and its stat), and an uncaught throw here ends the process.
+  // the readdir and its stat). The outer wrapper would catch it; this guard is
+  // here to return a listing-specific error instead of a generic one.
   if (method === 'GET' && pathname === '/exports') {
    try {
     if (!fs.existsSync(EXPORTS_DIR)) {
@@ -734,7 +735,7 @@ const server = http.createServer(async (req, res) => {
         return { name: d.name, size, url: `/exports/${d.name}` };
       });
     return json(res, 200, { exports: files });
-   } catch (err) { // prawduct:allow prawduct/broad-except -- unauthenticated pre-auth handler; an uncaught sync-fs throw here kills the daemon
+   } catch (err) { // prawduct:allow prawduct/broad-except -- any sync-fs failure on this unauthenticated route becomes a specific 500 + log line rather than the outer wrapper's generic one
     console.error('[bridge] /exports listing failed:', err);
     if (!res.headersSent) return json(res, 500, { error: 'Export listing failed' });
     return res.destroy(err);
