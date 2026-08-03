@@ -283,10 +283,17 @@ non-browser client sends it. So the gate reads `Origin` when present (the more p
 signal, and the one that keeps a loopback dev UI working, since a different port on the same
 site reports `same-site`), and falls back to `Sec-Fetch-Site` when it is absent.
 
-Coverage: `bridge/__tests__/auth.test.js`. Each guard verified by reintroducing the defect it
-guards — disabling the gate fails 6, replacing the URL parse with a prefix match fails the
-`127.0.0.1.evil.example` test alone, and disabling the `Sec-Fetch-Site` branch fails the
-no-`Origin` consume-GET test alone.
+Coverage: `bridge/__tests__/auth.test.js`. Every guard here was verified by reintroducing the
+defect it guards and watching the specific test go red — replacing the URL parse with a prefix
+match fails the `127.0.0.1.evil.example` test alone; disabling the `Sec-Fetch-Site` branch
+fails the no-`Origin` consume-GET test alone; matching against the raw allowlist rather than
+the effective one fails the `Origin: null` test alone; and disabling the gate outright fails
+every refusal test while leaving the compatibility tests green, which is what shows the gate is
+scoped rather than blanket.
+
+Stated as invariants rather than counts on purpose: an earlier version of this paragraph said
+"disabling the gate fails 6" and was stale within two commits, because the number tracks a
+suite that grows.
 
 **What this does not defend against, stated so it is not over-claimed:**
 

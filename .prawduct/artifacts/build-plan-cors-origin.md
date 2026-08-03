@@ -90,8 +90,16 @@ it up — and chunk 02 found the same defect class again in its own work: a malf
 entry failed closed silently, so `/health` would have reported it as active. Both are fixed and
 falsified. Suite 604 → 629.
 
-Plan complete pending the single `/prawduct:critic cumulative` that `Type: cumulative-final`
-calls for, then `/prawduct:pr`. The `565`-test figures in `backlog.md` and `change-log.md` were
+**Plan complete.** The `cumulative` review that `Type: cumulative-final` calls for has run
+(0 blocking, 7 warnings), its findings are fixed, and a `verify-resolutions` pass confirmed all
+seven. `CRS-4T8K` is archived. Remaining: `/prawduct:pr`, then the release itself.
+
+The cumulative pass caught a real one — the gate matched the raw allowlist while `/health`
+reported the filtered set, so a `null` entry was honoured and simultaneously reported inert.
+Third instance in this plan of a check narrower than its claim; the distilled rule is mechanic
+4 under "Verify against the claim, not against the change" in `learnings.md`.
+
+The `565`-test figures in `backlog.md` and `change-log.md` were
 deliberately left: each is a dated verification record, and rewriting a dated fact falsifies
 history rather than fixing staleness. Only the `project-state.yaml` one was touched, because it
 read as a claim about the current suite rather than about the invocation it was recording.
