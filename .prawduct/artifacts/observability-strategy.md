@@ -50,7 +50,7 @@ otherwise look identical:
 was added after #16: the payload could not distinguish a healthy bridge from one with its
 front door open, so an operator reading `/health` was told "fine" either way.
 
-Stdout carries what `/health` cannot: **rejected authentication attempts**
+Console output (stderr for warnings, stdout otherwise) carries what `/health` cannot: **rejected authentication attempts**
 (`[bridge] 401 <method> <path> from <peer>`, added 2026-08-02) — the only signal that
 someone is probing a daemon that binds `0.0.0.0` and whose authenticated routes spawn host
 shells. **This is a control that only works if someone watches it**: there is no alerting,

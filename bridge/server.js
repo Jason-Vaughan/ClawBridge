@@ -634,7 +634,16 @@ const server = http.createServer(async (req, res) => {
   const method = req.method;
   const pathname = url.pathname;
 
-  // CORS for container access
+  // CORS for container access. Wildcard origin, and the preflight below allows
+  // POST with an Authorization header — so any web page the operator visits can
+  // make cross-origin calls to this bridge on localhost. With a token that is
+  // merely a nuisance (the page has no credential). Under
+  // CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true it is not: a visited page can
+  // POST /v2/session/start and spawn an agent with shell access to the host.
+  //
+  // This is why the escape hatch's precondition is stated as "no browser on this
+  // host" rather than "unreachable from the network" — see README Security
+  // Posture. Narrowing the origin when running open is filed as CRS-4T8K.
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -967,7 +976,8 @@ async function startServer() {
     console.error('  with shell access to this host, so it will not start without a bearer token.');
     console.error('');
     console.error('  Fix: set BRIDGE_TOKEN in bridge/.env (or the service environment).');
-    console.error('  Override, only if this port is genuinely unreachable by anyone else:');
+    console.error('  Override — only if nothing else can reach this port AND no browser runs');
+    console.error('  on this host (CORS is wildcard, so a visited page could call the API):');
     console.error('    CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true');
     process.exit(1);
   }

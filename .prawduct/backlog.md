@@ -161,6 +161,31 @@
   npm, so importing this item verbatim would publish an unpatched auth bypass.
   Fix first, migrate after.
 
+- **[CRS-4T8K]** Wildcard CORS makes the unauthenticated escape hatch unsafe on any host with a browser
+  `effort: S · impact: M · area: security · source: critic · added: 2026-08-02 · status: open · stage: design`
+
+  `bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and
+  the preflight allows `POST` with an `Authorization` header. With `BRIDGE_TOKEN`
+  set this is a nuisance rather than a hole — a random page has no credential to
+  send. **Under `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` it is a hole**: any page
+  the operator visits can cross-origin `POST /v2/session/start` against
+  `localhost` and spawn an agent with shell access to the host.
+
+  Raised three times by Critic before being acted on, because each pass I treated
+  it as a security-behavior decision belonging to the owner and therefore not
+  mine to touch. That was half right: changing the header is the owner's, but the
+  *precondition I had written into the startup warning and the README* — "only if
+  this port is genuinely unreachable by anyone else" — was mine, and it was
+  unsatisfiable as stated. Documented now in both places plus a comment at the
+  header, so an operator can at least evaluate the risk.
+
+  **Remaining decision (the reason this stays open):** narrow the origin when
+  running open — e.g. echo only `localhost`/`127.0.0.1` origins, or drop the
+  wildcard entirely when `TOKEN` is empty. Cheap, and it would make the
+  precondition satisfiable rather than merely documented. Not done here because
+  it changes CORS behavior for existing container callers, which is exactly the
+  kind of thing that should not ride along in someone else's PR.
+
 - **[EXP-9WQ2]** `/exports/*` crashes the whole bridge on any successful download
   `effort: S · impact: L · area: security · source: critic · added: 2026-08-02 · status: shipped · closed-by: chunk-02-exports · related: SEC-UTP4 · reviewed: 2026-08-02`
 

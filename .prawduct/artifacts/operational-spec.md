@@ -102,7 +102,8 @@ Start from the signal, not the code. Every entry maps to a documented failure mo
 | Sessions start then die instantly | `ptyMode` | Running in `pipes-fallback` |
 | Everything works without a token | `insecure` on `/health` | `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` is set. A deliberate opt-in, not a breach — but confirm it was deliberate *here*, and that the port is genuinely unreachable by others |
 | Service restarts forever, never listens | the `FATAL:` block in the log | `BRIDGE_TOKEN` missing from the service environment. Set it; do not reach for the override to stop the loop |
-| Bridge dies on an `/exports` request | the stack trace in the log, then the bridge version | `EXP-9WQ2` fixed the `ext` ReferenceError **and** wrapped both handlers, so a recurrence is a *new* uncaught throw in pre-auth code, not the old bug. Do not stop at "must be a pre-fix build" — read the trace. These two handlers run outside the main request try/catch, so anything that throws there ends the process |
+| Bridge dies on an `/exports` request | the stack trace in the log, then the bridge version | Should no longer be possible: since `2b55872` the whole request callback is wrapped, so an unexpected throw returns 500 rather than ending the process. A recurrence means something threw *outside* that wrapper — read the trace rather than assuming a pre-fix build |
+| Repeated `[bridge] 401` lines | the peer address in the log | Someone is probing. Expected briefly after a token rotation a client missed; a burst from an unfamiliar peer is not. There is no alerting — this line is the only signal |
 
 **When in doubt on the parser, do not "fix" it from a hypothesis.** The bias to false
 negatives is deliberate; overeager matching caused bugs #5, #6, and #10. Reproduce, add a

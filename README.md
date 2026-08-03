@@ -107,6 +107,8 @@ Two further properties are worth stating outright, because both are deliberate:
 - **One privilege tier.** There is a single shared `BRIDGE_TOKEN` and no per-caller authorization. Any token holder can act on any project.
 - **Transcripts are unfiltered.** The event log and `/v2/session/transcript` store raw PTY output verbatim, so anything Claude Code prints — the contents of a `.env`, an echoed key, a token in a stack trace — is held in memory and returned in full to any token holder. There is no redaction, by decision rather than by omission: this is a single-operator host daemon, and anyone who can read a transcript already has access to the host those secrets live on. Adding redaction would buy little and would make the transcript a less faithful record of what actually happened.
 
+**CORS is wildcard.** `Access-Control-Allow-Origin: *`, and the preflight allows `POST` with an `Authorization` header. With `BRIDGE_TOKEN` set this is a nuisance rather than a hole — a web page has no credential to send. **In the unauthenticated mode it is a hole**: any page the operator visits can cross-origin `POST /v2/session/start` against `localhost` and spawn an agent with shell access. So `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` requires *both* that nothing else can reach the port *and* that no browser runs on the host — "unreachable from the network" alone is not enough.
+
 If your deployment breaks either assumption — multiple mutually-untrusting callers, or transcripts leaving the trust boundary they were produced in — supply the missing control at the network layer. ClawBridge will not do it for you.
 
 The full model, including known gaps, is in [`.prawduct/artifacts/security-model.md`](.prawduct/artifacts/security-model.md).
