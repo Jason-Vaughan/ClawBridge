@@ -83,6 +83,17 @@ is not a "remember to be thorough" rule — it is a rule about *where the check 
 1. **Falsify, don't confirm.** Whenever you claim a guard exists, break the thing it guards
    and watch the check go red. A test that has never failed has never been tested. This is
    one command and it is the highest-yield habit on this list.
+
+   **But falsifying a too-narrow check only proves the check is narrow.** On 2026-08-03 a
+   test was written for the `.env.example` sample, watched to fail, watched to pass — and
+   the identical defect shipped in the README's env block, because the test pinned the file
+   in mind rather than the property. So after the red-green step, ask the second question:
+   *does the scope of what I just falsified match the scope of what I am about to claim?*
+   If the claim is "no documented sample hands out a token" then the check enumerates the
+   samples; if it is "this file is clean" then say only that. The fix is usually to
+   enumerate rather than to name — and to add a meta-assertion that the enumeration found
+   something, so a changed filename or fence tag cannot leave it green while checking
+   nothing.
 2. **Check the sentence you are about to write, not the action you took.** "The branch is
    deleted" and "the content is unreachable" are different claims needing different probes.
    Take the literal words of the report and ask what would falsify *them*.
