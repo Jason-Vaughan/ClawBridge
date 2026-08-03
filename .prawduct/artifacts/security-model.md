@@ -369,22 +369,47 @@ that same rule had been deliberately applied to sequence the npm publish ahead o
 push. The rule was being followed and broken within the same hour, which is the part worth
 recording: applying a rule once does not install it.
 
-**Why it is accepted rather than remediated.** There is no undo. `8070d4a` is a named, listed
-ref on a public repo; deleting or rewriting it removes the ref, not the objects, which is
-recorded in this same learning from the 2026-08-02 incident. The only real questions were
-whether to ship a rushed fix or to record the acceptance, and the owner chose the latter on
-2026-08-03.
+**Why it is accepted rather than remediated.** There is no undo. The commit is reachable on a
+public repo through a *listed branch ref* (`refs/heads/release/2.0.0`), not merely by SHA;
+deleting or rewriting the ref removes the ref, not the objects. That distinction is what makes
+this case worse than the 2026-08-02 residue below, where the branch was deleted and only
+unadvertised SHAs remained. The only real questions were whether to ship a rushed fix or to
+record the acceptance, and the owner chose the latter on 2026-08-03.
 
-**Severity, bounded by a verified fact rather than an assumption.** The first read of this was
-that exported *session transcripts* — documented here as containing raw PTY output including
-`.env` contents and keys — were reachable. That is wrong: session snapshots persist to
-`bridge/.session-history` (`HISTORY_DIR`), not to `EXPORTS_DIR`. `EXPORTS_DIR` is
-operator-curated, and `README.md` has always instructed operators to point it at "a directory
-you are content to publish to anyone who can reach the port". So the real escalation is
-narrower than it first appeared: **from "anyone who can reach the port" to "any page the
-operator visits"** — which still matters, because a firewalled port is not reachable while the
-operator's own browser is, but it is not a secrets leak and it does not contradict the
-instruction operators were already given.
+**Severity, bounded by verified facts — and the bound is narrower than first written.** The
+first read of this was that exported *session transcripts* — documented here as containing raw
+PTY output including `.env` contents and keys — were reachable. That is wrong: session
+snapshots persist to `bridge/.session-history` (`HISTORY_DIR`, `bridge/server.js:376`), not to
+`EXPORTS_DIR` (`:125`). So this is not a secrets leak by default.
+
+The second read was also wrong, in the direction that flatters the acceptance, and is corrected
+here rather than left standing. It claimed `README.md` had *always* instructed operators to
+point `EXPORTS_DIR` at "a directory you are content to publish", and concluded the exposure
+contradicted no instruction operators had been given. **That is true of 2.0.0 and false of
+1.9.1.** The instruction entered in `4ef4f94`, which post-dates `v1.9.1`; `git show
+v1.9.1:README.md` mentions `EXPORTS_DIR` nowhere, while `v1.9.1:bridge/server.js:593` sets the
+same unconditional wildcard over the same unauthenticated handlers.
+
+So the escalation differs by version, and the worse case belongs to the operators who have not
+upgraded yet:
+
+- **On 2.0.0** — from "anyone who can reach the port" to "any page the operator visits", for a
+  directory the operator was explicitly told to treat as publishable.
+- **On 1.9.1** — the same reachability change, but against an *unlabeled* `$HOME/exports`
+  default that no documentation ever flagged as public. Those operators were given no
+  instruction to contradict.
+
+**Does that change the acceptance?** It does not change the two things the acceptance rests
+on — the disclosure has no undo, and settling a possible fourth departure from the `/v2`
+compatibility norm under disclosure pressure is the decision this record exists to avoid. It
+does raise the priority of `CRS-8N3P`, and the mitigation for the worse half already exists and
+is published: upgrading to 2.0.0 both labels `EXPORTS_DIR` and is where any fix will land. This
+paragraph is the one likely to be quoted at the next triage to argue the fix can wait, so it
+should be read as raising that bar, not lowering it.
+
+**Revisit if any of these change:** `EXPORTS_DIR` stops being operator-curated (anything that
+writes session transcripts or history there); `CRS-8N3P` moves off `stage: design`; or the
+`/v2` norm is amended, which would remove the fourth-departure objection to fixing it directly.
 
 **What remains open.** The behavior itself. `CRS-8N3P` is `stage: design` because the fix is a
 genuine choice, and one of the options is a *fourth* departure from the `/v2` compatibility

@@ -33,6 +33,26 @@ Developer preferences for how code is written in this project. Captured during d
 - **Test location**: Colocated `__tests__/` beside the code — `bridge/__tests__/` for the server surface, `bridge/v2/__tests__/` for the broker. Fixtures in `bridge/__tests__/fixtures/`.
 - **Parallelization**: vitest defaults (no custom pool config). Full suite runs in ~6s.
 
+### Do not work while the Critic is running
+
+**Wait for the review to report before touching the tree.** No edits, no commits, no
+"productive" parallel work on the same branch — read its findings, then act.
+
+Why, from 2026-08-03: the Critic reviews a *tree*, and the evidence model composes facts over
+trees. Editing during a run silently invalidates the fact it is about to record — that happened
+once this session, and a second review had to be spent re-covering ground. The subtler cost is
+attention: several of that session's defects (a miscount inside the paragraph arguing counts
+matter, and a public-repo disclosure written one commit after the same rule had been applied)
+went in while a review was in flight and half the reasoning was elsewhere. A review is a
+checkpoint, not spare capacity.
+
+Owner instruction, 2026-08-03: *"i dont like our work overlapping the critic. this is where and
+why mistakes happen."*
+
+Deep-scrubbing your own diff by **reading** is fine and encouraged — the prohibition is on
+changing it. If something must be done while waiting, prefer work that touches nothing the
+review covers, and prefer waiting.
+
 ### The rule that outranks the others
 
 **Unit tests are necessary but not sufficient for the PTY surface.** Any change touching
