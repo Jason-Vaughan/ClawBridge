@@ -27,7 +27,11 @@
     "node": ">=18"
   },
   "files": [
-    "bridge/",
+    "bridge/*.js",
+    "bridge/.env.example",
+    "bridge/com.clawbridge.builder.plist",
+    "bridge/__tests__/",
+    "bridge/v2/",
     "docs/",
     "examples/",
     "scripts/",

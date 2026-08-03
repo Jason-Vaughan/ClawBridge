@@ -79,9 +79,10 @@
 
      RESOLVED as of 2026-08-02: SEC-UTP4 and EXP-9WQ2 both shipped, so the
      writeups now document closed bugs and the disclosure objection is gone.
-     The cutover is unblocked and simply has not been run — the remaining
-     precondition is that the fixes are released, not merely merged, since npm
-     still serves 1.9.1.
+     The cutover is unblocked and simply has not been run. Its remaining
+     precondition — that the fixes be *released*, not merely merged — was met
+     2026-08-03 when `@jason-vaughan/clawbridge@2.0.0` was published and
+     `dist-tags.latest` moved off 1.9.1 (see `REL-BRS7`).
 
      Nothing has been created on GitHub. `backlog_service_repo` stays unset, so
      this file remains the live backlog until the cutover runs. -->
@@ -92,34 +93,62 @@
      docs — none were introduced by the onboarding itself. -->
 
 - **[REL-BRS7]** Ship v2.0.0 and get habitat off the vulnerable 1.9.1
-  `effort: S · impact: L · area: release · source: user · added: 2026-08-03 · status: open · stage: ready`
+  `effort: S · impact: L · area: release · source: user · added: 2026-08-03 · status: open · stage: ready · reviewed: 2026-08-03`
 
-  **High priority — parked deliberately 2026-08-03, to be picked up in a fresh
-  session.** The work is done; what remains is the irreversible half.
+  **High priority. npm is PUBLISHED; the remaining steps are the ones that
+  actually reach habitat.**
 
   `main` has all the code. `release/2.0.0` (`e49fe37`, pushed) has the prep:
   version 2.0.0, CHANGELOG promoted, `release=v2.0.0` tags, release notes
-  regenerated. Nothing published — npm still serves 1.9.1.
+  regenerated. **`@jason-vaughan/clawbridge@2.0.0` was published to npm
+  2026-08-03T19:29Z and `dist-tags.latest` is `2.0.0`.**
 
-  **Why it is high priority rather than routine housekeeping:** habitat is
-  running 1.9.1, which has two unauthenticated single-request process kills
-  (`GET /exports/<file>`, `GET //`), each of which takes every live PTY session
-  with it and is repeatable under `KeepAlive`. And RentalClaw pins `^1.5.0`, so
-  publishing 2.0.0 *cannot* break habitat and habitat will *never* pick it up —
-  the fix does nothing until that range is bumped by hand. Verify current state
-  with the check in `.prawduct/.handoff-notes.md` rather than trusting this item.
+  **The durable lesson — publish BEFORE pushing the branch, when the branch
+  documents live exploits.** `release/2.0.0` carries write-ups of two working
+  unauthenticated process kills against 1.9.1, and `Jason-Vaughan/ClawBridge` is
+  a **public** repo. Pushing that branch while the registry still served 1.9.1
+  would have published a working exploit against the only version anyone could
+  install. So the publish deliberately *preceded* the push. Any future release
+  whose branch describes an exploit against the currently-published version must
+  order the steps the same way: **publish the fix first, push the disclosure
+  second.**
 
-  Steps: tag + GitHub release + `npm publish`; merge the branch back to `main`;
-  bump RentalClaw's range to `^2.0.0` (**another repo — flag, do not edit from a
-  ClawBridge session**); `npm install` and restart habitat; confirm `/health`
-  reports `bridge: 2.0.0`. Habitat's plist already sets `BRIDGE_TOKEN`, so the
-  breaking startup change is a no-op there.
+  **Verify current state from committed files, not from this item and not from
+  local state.** `.prawduct/change-log.md` (`release=v2.0.0` tags) and
+  `.prawduct/release-notes.md` (`## v2.0.0`) are tracked in git, so a fresh
+  clone or any reader of the public repo can follow them. Do **not** point at
+  `.prawduct/.handoff-notes.md` — it is gitignored and invisible to everyone but
+  the machine that wrote it. For the registry, `npm view
+  @jason-vaughan/clawbridge dist-tags`; if the local npm cache lags (it did, by
+  minutes, on 2026-08-03), query `https://registry.npmjs.org/@jason-vaughan%2Fclawbridge`
+  directly.
 
-  **Time-sensitive in one specific way:** `release/2.0.0` promoted
-  `[Unreleased]`, so it conflicts with `main` as soon as anything lands there
-  under a fresh `[Unreleased]`. Re-cutting is ~10 minutes; resolving that
-  conflict risks silently dropping a changelog entry. If the release slips more
-  than a few days, delete the branch and re-cut.
+  **Why it is still high priority:** habitat is running 1.9.1, which has two
+  unauthenticated single-request process kills (`GET /exports/<file>`, `GET //`),
+  each of which takes every live PTY session with it and is repeatable under
+  `KeepAlive`. And RentalClaw pins `^1.5.0`, so the published 2.0.0 *cannot*
+  break habitat and habitat will *never* pick it up — **publishing did nothing
+  for habitat until that range is bumped by hand.**
+
+  Remaining steps:
+  1. `git tag v2.0.0` + `gh release create` (the tag and GitHub release are still
+     missing even though the package is live).
+  2. Merge `release/2.0.0` back to `main`.
+  3. **Bump RentalClaw's range `^1.5.0` → `^2.0.0` — another repo. Flag it; do
+     not edit it from a ClawBridge session.** Then `npm install` and restart
+     habitat, and confirm `/health` reports `bridge: 2.0.0`. **This is the only
+     remaining step that actually reaches habitat**; steps 1–2 are bookkeeping.
+     Habitat's plist already sets `BRIDGE_TOKEN`, so the breaking startup change
+     is a no-op there.
+
+  **Branch time-sensitivity — the old "delete and re-cut" advice is now
+  constrained.** `release/2.0.0` promoted `[Unreleased]`, so it conflicts with
+  `main` as soon as anything lands there under a fresh `[Unreleased]`, and
+  resolving that conflict risks silently dropping a changelog entry. Re-cutting
+  the *branch* is still ~10 minutes, but **2.0.0 is immutable on npm now** — a
+  re-cut may not change the version or the published contents' meaning; it can
+  only redo the branch prep for the same released 2.0.0. Anything requiring
+  different published bits needs 2.0.1.
 
   The decision that was riding with it — `CRS-4T8K` (narrow CORS when
   unauthenticated) — **shipped 2026-08-03 into `release/2.0.0`** (scope
@@ -293,6 +322,35 @@
   2. Drop the wildcard entirely and require an allowlist in **both** modes.
   3. Decide `EXPORTS_DIR` is publishable by definition — and say so far louder
      than the current docs do.
+
+- **[PKG-4R7T]** npm tarball shipped gitignored session transcripts through the `files` whitelist
+  `effort: S · impact: S · area: security · source: critic · added: 2026-08-03 · status: open · stage: ready · related: SEC-PZ50`
+
+  `package.json` `files: ["bridge/", ...]` pulled `bridge/.session-history/*.json`
+  into every published tarball **even though the directory is gitignored** —
+  npm's `files` whitelist overrides `.gitignore`. Confirmed by downloading the
+  published 2.0.0 tarball: five snapshots present, including `demo.json` created
+  during the 2026-08-03 verification run. 1.9.1 shipped four of the same files.
+
+  **No leak, no rotation required.** The transcripts were scanned independently
+  for credential-shaped strings, host paths and usernames — **clean**.
+
+  **The channel is the defect, not the content.** The security model records that
+  transcripts are unfiltered raw PTY output that may echo `.env` values and keys
+  (`SEC-PZ50`), and the set grows with every local session on whatever machine
+  happens to publish. This time it was clean; the mechanism guarantees nothing
+  about next time.
+
+  **Fixed in the repo** by making the whitelist explicit: `bridge/*.js`,
+  `bridge/.env.example`, `bridge/com.clawbridge.builder.plist`,
+  `bridge/__tests__/`, `bridge/v2/`. Verified by diffing the proposed tarball
+  against the published 2.0.0 one — the delta is exactly the five transcripts and
+  nothing else.
+
+  **Remaining decision:** publish 2.0.1 so the registry's `latest` is clean, or
+  let it ride to the next release. (Note the tarball also ships both test
+  directories; left alone deliberately as pre-existing and out of scope for this
+  fix.)
 
 ## Promoted
 
