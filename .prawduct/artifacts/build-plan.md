@@ -8,12 +8,14 @@ in 2.0.0-pending. Stakes, not size, set the rigor.
 
 ## Requirements Confidence: **High**
 
-1. **What problem are we solving?** `bridge/.env.example` ships `BRIDGE_TOKEN=changeme`, and
-   `README.md` Quickstart step 2 says `cp bridge/.env.example bridge/.env`. The startup
-   guard added for `SEC-UTP4` checks that a token is **present**, and `changeme` is present.
-   So the documented install path produces a bridge that starts successfully, authenticated
-   by a one-word guessable token, on a `0.0.0.0` bind with wildcard CORS — and nothing
-   complains, because from the guard's perspective it is correctly configured.
+1. **What problem are we solving?** **Both** documented install paths ship a working token,
+   and both are released. `bridge/.env.example` ships `BRIDGE_TOKEN=changeme` (README
+   Quickstart step 2 says to copy it), and `README.md`'s own paste-able env block ships
+   `BRIDGE_TOKEN=replace-me`. The startup guard added for `SEC-UTP4` checks that a token is
+   **present**, and both literals are present. So either path produces a bridge that starts
+   successfully, authenticated by a credential published verbatim in this repository, on a
+   `0.0.0.0` bind with wildcard CORS — and nothing complains, because from the guard's
+   perspective the install is correctly configured.
 
 2. **What does success look like?** Copying `.env.example` and starting the bridge fails
    with the FATAL block rather than succeeding with a weak token, and that block tells the
@@ -66,8 +68,11 @@ accidental success.
 - `bridge/__tests__/auth.test.js` — the example cannot ship a guard-satisfying value
 - `CHANGELOG.md` — `### Security` entry
 
-**Done when:** a bridge spawned with `.env.example`'s variables refuses to start, and the
-test fails if `BRIDGE_TOKEN` in that file is given any value.
+**Done when:** a bridge spawned from *any* documented sample's variables refuses to start,
+and the test fails if `BRIDGE_TOKEN` in any of them is given a value — including one that is
+only non-empty because of a trailing comment. Both released samples (`changeme` in the
+example, `replace-me` in the README) are covered by the same enumeration, and the operator
+is told to rotate if they configured from either.
 
 ## Status
 
