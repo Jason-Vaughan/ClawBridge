@@ -54,8 +54,10 @@ containment boundary has misread it.
 ## Known gaps
 
 G1-G3 came from reconciling the code against the stated posture; G4 came from self-review
-during the G1 fix. None were introduced by this onboarding. G1 and G3 are fixed, G2 is an
-owner-accepted risk, and G4 is filed and open.
+during the G1 fix; G5 from Critic review of that fix. None were introduced by this
+onboarding. G1, G3 and G4's crash are fixed; G2 is an owner-accepted risk; G5 is documented
+and open (`CRS-4T8K`). **This register is not closed** — it is what has been examined so
+far.
 
 ### G1 — Auth fails OPEN when the token is unset · **FIXED 2026-08-02** · `SEC-UTP4`
 
@@ -166,6 +168,28 @@ The three problems as found:
 
 Containment that does hold: traversal, absolute-path, NUL, and symlink-escape checks are all
 present and correct on the route.
+
+### G5 — Wildcard CORS makes the unauthenticated mode browser-reachable · `CRS-4T8K` · OPEN
+
+`bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and the
+preflight allows `POST` with `Content-Type, Authorization`.
+
+**With a token this is a nuisance, not a hole** — a page the operator visits has no
+credential to send, so it gets 401s. **Without one it is a hole**: under
+`CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` any visited page can cross-origin
+`POST /v2/session/start` against `localhost` and spawn an agent with shell access to the
+host. The escape hatch's precondition is therefore "nothing else can reach the port **and**
+no browser runs here", not "unreachable from the network" — which is how it was originally
+written, in the startup warning and the README, by me.
+
+Documented at the header, in the FATAL startup message, in README Security Posture, and in
+the operational-spec triage row. **Not fixed**: narrowing the origin when `TOKEN` is empty
+would change CORS behavior for existing container callers, which is an owner decision, not
+a drive-by in a security PR. That is `CRS-4T8K`.
+
+Raised by Critic three times before being acted on. Each pass I classified the whole item
+as the owner's call because *part* of it was — while the unsatisfiable precondition in my
+own prose was mine to fix from the first pass.
 
 ## Accepted risk — pre-fix disclosure residue (2026-08-02)
 

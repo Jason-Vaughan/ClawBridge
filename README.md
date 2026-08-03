@@ -196,7 +196,7 @@ curl -H "Authorization: Bearer $BRIDGE_TOKEN" \
 | `PYTHON_BIN` | No | Path to Python 3 binary (auto-detected) |
 | `PROJECTS_DIR` | No | Directory containing projects the bridge may operate on (default: `$HOME/projects`). Sessions run here, and it scopes `/projects/*` and `/v2/session/file`. |
 | `EXPORTS_DIR` | No | Directory served by `GET /exports` and `GET /exports/*` (default: `$HOME/exports`). **These two routes are unauthenticated by design** — the listing exposes every filename and the download serves every file. Point it at a directory you are content to publish to anyone who can reach the port. |
-| `CLAWBRIDGE_ALLOW_UNAUTHENTICATED` | No | Set to exactly `true` to start without `BRIDGE_TOKEN`, serving every route unauthenticated. Only for a port genuinely unreachable by anyone else. Any other value — including `1`, `yes`, or `TRUE` — is not accepted. |
+| `CLAWBRIDGE_ALLOW_UNAUTHENTICATED` | No | Set to exactly `true` to start without `BRIDGE_TOKEN`, serving every route unauthenticated. Only where nothing else can reach the port **and no browser runs on the host** — CORS is wildcard, so a visited page can call the API cross-origin (see [Security Posture](#security-posture)). Any other value — including `1`, `yes`, or `TRUE` — is not accepted. |
 | `CLAWBRIDGE_TOOLS_MODULE` | No | Absolute path to a Node module implementing the [tools extension interface](docs/tools-extension.md). When set, the bridge mounts the module under `/tools/*` and merges its health into `/health`. Absent, the bridge runs as a pure PTY broker. |
 
 ### Claude Code Headless Auth
