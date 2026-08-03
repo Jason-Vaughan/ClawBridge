@@ -3,8 +3,10 @@
 Authored 2026-08-02 during discovery reconciliation. This is the first time ClawBridge's
 security posture has been written down in one place — the README states a *position* (what
 the safety model is not), and the code implements *mechanisms*, but nothing reconciled the
-two. Doing so surfaced three gaps; a fourth was found later while self-reviewing the
-`SEC-UTP4` fix. All four are recorded below.
+two. Doing so surfaced three gaps; three more followed — one from self-review during the
+`SEC-UTP4` fix, two from Critic review of that fix. All six are recorded below. They run
+G1-G4, G6, G5: G6 sits beside G4 because they are the same defect class, and G5 is last
+because it is the only one still open.
 
 ## What this product is defending
 
@@ -68,7 +70,7 @@ it by accident — starts it anyway, but `/health` then reports `insecure: true`
 `auth.required: false`, and every boot logs a warning. `checkAuth` returns the opt-in flag
 rather than a bare `true`, so an unset token cannot widen authority on its own even if the
 startup guard were ever bypassed. Token comparison is now `crypto.timingSafeEqual` behind a
-length guard (closes G3). Regression coverage: `bridge/__tests__/auth.test.js`, 20 tests.
+length guard (closes G3). Regression coverage: `bridge/__tests__/auth.test.js`, 22 tests (16 `it(` plus a six-case `it.each`).
 
 The description below is retained as the record of what was wrong and why it mattered.
 
