@@ -1111,6 +1111,9 @@ scope_rollups:
   cors-origin:
     chunks: ["01", "02"]
     releases: ["v2.0.0"]
+  pkg-hygiene:
+    chunks: ["01"]
+    releases: ["v2.0.1"]
   safe-get:
     chunks: ["01"]
     releases: ["v2.0.0"]

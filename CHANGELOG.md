@@ -4,6 +4,8 @@ All notable changes to ClawBridge are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.1] — 2026-08-03
+
 ### Security
 - **Session transcripts are no longer packaged — and the packaged ones were being served.** `bridge/.session-history/` is gitignored, but npm's `files` whitelist overrides `.gitignore`, so every tarball **up to and including 2.0.0** carries five of the maintainer's local session snapshots.
 

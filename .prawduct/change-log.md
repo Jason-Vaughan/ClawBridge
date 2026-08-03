@@ -48,6 +48,37 @@
      derived view. Don't hand-edit them — add/update a tagged entry here and
      run `prawduct-hook regen-views`. -->
 
+## 2026-08-03: Stop publishing session transcripts, which were also being served
+
+<!-- prawduct: chunks=01 | status=shipped | release=v2.0.1 | scope=pkg-hygiene -->
+
+**Why:** `package.json`'s `files` whitelist listed `bridge/`, and npm's whitelist overrides
+`.gitignore`, so the untracked `bridge/.session-history/` shipped in every tarball up to and
+including 2.0.0. Found by the independent PR reviewer, which inspected the published artifact
+rather than the diff — neither the Critic nor I had looked there.
+
+The first write-up called it a hygiene defect and told operators "nothing reads them". Critic
+falsified that. `HISTORY_DIR` resolves to the *installed* `bridge/.session-history/`, the
+`SessionManager` constructor loads every `.json` there at startup keyed by the `project` field
+inside the maintainer's file, and `GET /v2/session/last` serves that map. Verified against a
+real install of the published tarball: `?project=tictactoe` returns `found: true` with 41 KB of
+raw PTY transcript and `exitCode: 129` before the operator has run anything. An orchestrator
+polling that endpoint to detect completion can act on a snapshot that was never its own. The
+advice was worse than wrong — "nothing reads them" says leaving the files in place is safe, and
+leaving them in place is what keeps them served.
+
+**What:** explicit `files` whitelist; `prepublishOnly` runs the suite, since `TST-RYHK` records
+this repo has no CI and nothing otherwise obliged a check on the publishing machine. Published
+as 2.0.1 so `latest` is clean and existing installs have an upgrade path rather than a manual
+`rm -rf` instruction. Content of the published files was scanned — no credentials, host paths
+or usernames — so nothing to rotate.
+
+**Guard:** `bridge/__tests__/packaging.test.js`, asserting on the real `npm pack --dry-run
+--json` manifest rather than on the `files` array, and **planting its own subject** because the
+directory is untracked — without that, a clean checkout with a reverted whitelist emits no
+transcript paths and the guard passes green exactly where it matters. Both directions
+falsified, including with the real directory moved aside.
+
 ## 2026-08-03: Stop a destructive operation from answering GET
 
 <!-- prawduct: chunks=01 | status=shipped | release=v2.0.0 | scope=safe-get -->
