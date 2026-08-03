@@ -5,7 +5,13 @@ All notable changes to ClawBridge are documented in this file.
 ## [Unreleased]
 
 ### Security
-- **Session transcripts are no longer packaged.** `bridge/.session-history/` is gitignored, but npm's `files` whitelist overrides `.gitignore`, so every tarball **up to and including 2.0.0** carries the maintainer's local session snapshots. Those published files were checked and contain no credentials, host paths or usernames — but the channel is real, because this project's own security model records transcripts as unfiltered raw PTY output that may echo `.env` values and keys. **If you have 2.0.0 installed, `node_modules/@jason-vaughan/clawbridge/bridge/.session-history/` holds five JSON files you can delete; nothing reads them.** The whitelist is now explicit and guarded by a test that asserts on the real pack manifest. Tracked as `PKG-4R7T`.
+- **Session transcripts are no longer packaged — and the packaged ones were being served.** `bridge/.session-history/` is gitignored, but npm's `files` whitelist overrides `.gitignore`, so every tarball **up to and including 2.0.0** carries five of the maintainer's local session snapshots.
+
+  **They are not inert.** `HISTORY_DIR` resolves to the *installed* `bridge/.session-history/`, the `SessionManager` constructor loads every `.json` there at startup, and `GET /v2/session/last?project=<name>` serves them. On a fresh 2.0.0 install, before you have run anything, that endpoint returns `found: true` with a stranger's transcript and `exitCode: 129` for the project names `demo`, `tictactoe`, `tictactoe-v2`, `tictactoe-final` and `tictactoe-resmoke`. **If your orchestrator polls `/v2/session/last` to detect completion and you use any of those project names, it may have acted on a snapshot that was never yours.** Verified against a real install of the published tarball, not inferred.
+
+  **What to do now:** delete `node_modules/@jason-vaughan/clawbridge/bridge/.session-history/`. Nothing in the bridge needs it — the directory is recreated on demand when your own sessions complete.
+
+  The published files were checked and contain no credentials, host paths or usernames, so there is nothing to rotate. But the channel is real: this project's own security model records transcripts as unfiltered raw PTY output that may echo `.env` values and keys. The whitelist is now explicit, guarded by a test that asserts on the real `npm pack` manifest and supplies its own subject so it fires on a clean checkout, and `prepublishOnly` now runs the suite before any publish. Tracked as `PKG-4R7T`.
 
 ## [2.0.0] — 2026-08-03
 

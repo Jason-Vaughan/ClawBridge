@@ -15,17 +15,36 @@
  * (`bridge/*.js` does not match `bridge/__tests__/`).
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const HISTORY_DIR = path.join(REPO_ROOT, 'bridge', '.session-history');
+const MARKER = path.join(HISTORY_DIR, '__packaging-guard__.json');
 
 /** @type {string[]} Paths npm would publish, as the packer reports them. */
 let packedPaths;
+/** @type {boolean} Whether this run created the history dir and must remove it. */
+let createdDir = false;
 
 beforeAll(() => {
+  // Plant a transcript-shaped file before packing.
+  //
+  // Without this the guard is a no-op on exactly the machines that matter.
+  // `bridge/.session-history/` is gitignored and untracked, so a fresh clone or
+  // a CI runner has no such directory: a reverted `files: ["bridge/"]` whitelist
+  // would emit no transcript paths, both "does not ship" assertions would pass
+  // green, and the defect would ship. The guard has to supply its own subject
+  // rather than depend on the developer's machine happening to hold one.
+  if (!fs.existsSync(HISTORY_DIR)) {
+    fs.mkdirSync(HISTORY_DIR, { recursive: true });
+    createdDir = true;
+  }
+  fs.writeFileSync(MARKER, JSON.stringify({ project: '__packaging-guard__' }));
+
   // --dry-run writes no tarball; --json gives the manifest rather than a
   // human-readable notice stream we would have to parse loosely.
   const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
@@ -36,6 +55,15 @@ beforeAll(() => {
   });
   packedPaths = JSON.parse(raw)[0].files.map(f => f.path);
 }, 130000);
+
+afterAll(() => {
+  // Remove only what this run created — a developer's real session history
+  // lives here and must survive the test.
+  try { fs.rmSync(MARKER, { force: true }); } catch { /* already gone */ }
+  if (createdDir) {
+    try { fs.rmdirSync(HISTORY_DIR); } catch { /* non-empty: leave it */ }
+  }
+});
 
 describe('the published tarball (G8)', () => {
   it('reports a non-empty file list, so the assertions below are not vacuous', () => {

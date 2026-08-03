@@ -3,10 +3,9 @@
 Authored 2026-08-02 during discovery reconciliation. This is the first time ClawBridge's
 security posture has been written down in one place — the README states a *position* (what
 the safety model is not), and the code implements *mechanisms*, but nothing reconciled the
-two. Doing so surfaced three gaps; three more followed — one from self-review during the
-`SEC-UTP4` fix, two from Critic review of that fix. All six are recorded below. They run
-G1-G4, G6, G5: G6 sits beside G4 because they are the same defect class, and G5 is last
-because it was the last to close.
+two. Doing so surfaced three gaps, and more followed from self-review, Critic review and PR
+review as the work continued. All are recorded below under § Known gaps, in the order they
+were found rather than renumbered — G6 sits beside G4 because they are the same defect class.
 
 ## What this product is defending
 
@@ -55,12 +54,13 @@ containment boundary has misread it.
 
 ## Known gaps
 
-G1-G3 came from reconciling the code against the stated posture; G4 came from self-review
-during the G1 fix; G6 and G5 from Critic review of that fix. None were introduced by this
-onboarding. G1, G3, G4's crash, G6 and G5 are fixed; G2 is an owner-accepted risk. **This
-register is not closed** — it is what has been examined so far, and every entry keeps its
+Each entry carries its own status marker, which is the authority — this preamble deliberately
+does not enumerate them, because the enumerated version went stale twice as the register grew.
+**The register is not closed**: it is what has been examined so far, and every entry keeps its
 description of what was wrong even after the fix, because the next defect of that class is
-usually recognised by its shape.
+usually recognised by its shape. None of these were introduced by the Prawduct onboarding; they
+were found by reconciling code against the stated posture, by self-review, and by Critic and PR
+review.
 
 ### G1 — Auth fails OPEN when the token is unset · **FIXED 2026-08-02** · `SEC-UTP4`
 
@@ -365,10 +365,22 @@ published 2.0.0 artifact: five snapshots present, one created during that day's 
 verification run. 1.9.1 shipped four of the same.
 
 **Scanned before being written up, and clean** — no credential-shaped strings, no host paths,
-no usernames. So there was no leak and nothing to rotate. The *channel* is the defect: boundary
-1a and `SEC-PZ50` both record that transcripts are unfiltered raw PTY output which may echo
-`.env` values and keys verbatim, and the set grows with every session on whatever machine
-happens to publish.
+no usernames. So there was no leak and nothing to rotate.
+
+**But "shipped" understated it: the packaged transcripts are loaded and served.** `HISTORY_DIR`
+(`bridge/server.js:376`) resolves to the *installed* `bridge/.session-history/`;
+`SessionManager`'s constructor calls `_loadHistory()` (`bridge/v2/sessions.js:211`), which
+parses every `.json` there and keys it by the `project` field *inside the maintainer's file*;
+`GET /v2/session/last` (`bridge/v2/routes.js:434`) serves that map verbatim. Verified against a
+real install of the published 2.0.0 tarball: `?project=tictactoe` returns `found: true` with
+41 KB of raw PTY transcript and `exitCode: 129`, before the operator has run anything. So this
+is not only a hygiene defect — an orchestrator polling `/v2/session/last` to detect completion
+can act on a snapshot that was never its own. The earlier framing here ("the channel is the
+defect, not the content") was true of packaging alone and did not cover this.
+
+The content concern stands too: boundary 1a and `SEC-PZ50` both record that transcripts are
+unfiltered raw PTY output which may echo `.env` values and keys verbatim, and the set grows with
+every session on whatever machine happens to publish.
 
 **Why gitignore did not prevent it:** npm's `files` whitelist overrides `.gitignore`. The
 directory is untracked, which is exactly what made this invisible — a revert to the old
@@ -388,6 +400,13 @@ reintroducing the defect on 2026-08-03:
 Pinned in both directions because the first hand-narrowing of this whitelist silently dropped
 `bridge/__tests__/` (`bridge/*.js` does not match a subdirectory), and a guard that only
 forbids would have passed a whitelist that shipped nothing.
+
+The guard **plants its own subject** in `beforeAll` rather than relying on the developer's
+machine holding transcripts. Without that it is a no-op exactly where it matters: the directory
+is untracked, so on a clean checkout a reverted whitelist emits no transcript paths and both
+"does not ship" assertions pass green. Confirmed by moving the real directory aside and
+re-running the mutation. `prepublishOnly` was added alongside, because `TST-RYHK` records that
+this repo has no CI — nothing otherwise obliges the suite to run on the machine that publishes.
 
 ## Accepted risk — `CRS-8N3P` disclosed before it was fixed (2026-08-03)
 
