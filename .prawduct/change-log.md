@@ -63,9 +63,16 @@ both it and the FATAL block name `openssl rand -base64 32`; the README separates
 invented secret from the issued one, which is the setup confusion behind the operator's
 question that surfaced this.
 
-**Coverage:** 3 tests. They assert the behavior — a bridge spawned from `.env.example`'s own
-variables refuses to start — rather than grepping for `changeme`, which would pass against
-any future placeholder.
+**And then the fix reopened it.** The README env block written to replace `changeme` put an
+inline comment after `BRIDGE_TOKEN=`. The loader skips only lines that *start* with `#`, so
+that comment became the value — non-empty, guard silent, bridge running on a string
+published in this repo. Verified before fixing.
+
+**Coverage:** 6 cases over every documented sample — `.env.example` plus each `env`-fenced
+block in the README — asserting each yields no usable token and that a bridge configured
+from it refuses to start, plus a meta-assertion that the scan found at least two samples so
+a changed fence syntax cannot leave it checking nothing. The first version of this test
+pinned `.env.example` alone, which is exactly why it missed the README.
 
 **Not done:** runtime token-strength validation. Real feature, real false-positive risk, and
 not what made this a defect — the defect was shipping the weak value.

@@ -81,8 +81,10 @@ this repo.
 
 The lesson is not "check the example file". A presence check is only as strong as **every**
 sample a reader can copy, so regression coverage enumerates them — `.env.example` plus every
-```env block in the README — and asserts each yields no usable token and refuses to start.
-A new sample is covered before it is written.
+`env`-fenced block in the root `README.md` — and asserts each yields no usable token and
+refuses to start. A new sample added to either of those two sources is covered before it is
+written; a sample introduced somewhere else (a new doc, `docs/`) is not, and widening the
+scan is the fix if that happens.
 
 Regression coverage: `bridge/__tests__/auth.test.js`.
 
