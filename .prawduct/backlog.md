@@ -205,7 +205,7 @@
 <!-- Shipped and dropped items, kept for searchability. Never deleted. -->
 
 - **[SEC-PZ50]** No sensitive-data filtering on transcripts or text events
-  `effort: L · impact: L · area: security · source: reflection · added: 2026-08-02 · status: shipped · closed-by: chore/prawduct-onboarding · reviewed: 2026-08-02`
+  `effort: L · impact: L · area: security · source: reflection · added: 2026-08-02 · status: shipped · closed-by: clean/prawduct-onboarding · reviewed: 2026-08-02`
 
   **RESOLVED 2026-08-02 (operator) — accept and document. No code change.**
   The behavior is unchanged; its governance status is not. Reasoning recorded in
@@ -238,7 +238,7 @@
   second capability. Option (a) is free and may well be correct.
 
 - **[API-T5ST]** Deprecation / compatibility policy — RATIFIED as a norm
-  `effort: S · impact: M · area: api-contract · source: reflection · added: 2026-08-02 · status: shipped · closed-by: chore/prawduct-onboarding · reviewed: 2026-08-02`
+  `effort: S · impact: M · area: api-contract · source: reflection · added: 2026-08-02 · status: shipped · closed-by: clean/prawduct-onboarding · reviewed: 2026-08-02`
 
   **RATIFIED 2026-08-02 by the operator**, as worded, **retroactive to 1.5.0**
   (the retroactive form was chosen over from-today-forward). Born `steady-state`,
@@ -279,7 +279,7 @@
   whose `deprecation_policy` currently records the honest "not formally decided".
 
 - **[DOC-QNX6]** CHANGELOG claims examples are covered by CI; nothing covers them
-  `effort: S · impact: M · area: docs · source: reflection · added: 2026-08-02 · status: shipped · closed-by: chore/prawduct-onboarding · related: TST-RYHK · reviewed: 2026-08-02`
+  `effort: S · impact: M · area: docs · source: reflection · added: 2026-08-02 · status: shipped · closed-by: clean/prawduct-onboarding · related: TST-RYHK · reviewed: 2026-08-02`
 
   **RESOLVED 2026-08-02 (steward ruling) — corrected the claim; the CI is
   separate work.** A changelog asserting CI that never existed is a false

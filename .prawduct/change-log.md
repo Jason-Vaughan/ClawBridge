@@ -50,7 +50,14 @@
 
 ## 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
 
-<!-- prawduct: chunks=01,02 | status=shipped | release=v2.0.0 -->
+<!-- prawduct: chunks=01,02 | status=shipped -->
+
+<!-- No release= tag on purpose: the BREAKING marker computes a major bump, but the
+     version is the owner's decision and nothing in this bundle ships it — package.json
+     is still 1.9.1 and CHANGELOG keeps everything under [Unreleased]. Since /health
+     reports the package version, asserting v2.0.0 here would have an operator reading
+     1.9.1 from a build whose release notes claimed otherwise. Add release=vX.Y.Z at
+     release-prep and re-run regen-views. -->
 
 **Why:** the bridge treated an unset `BRIDGE_TOKEN` as "authentication optional" and served
 every route on a `0.0.0.0` bind while `/health` reported healthy — the auth layer resolving

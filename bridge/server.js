@@ -655,15 +655,20 @@ const server = http.createServer(async (req, res) => {
   // Static exports serving (no auth — read-only, public)
   //
   // These two handlers run BEFORE the auth check, so they cannot live inside the
-  // main request try/catch further down (that sits after auth, and moving them
-  // there would make the routes private). They therefore carry their own, and
-  // they must: every fs call here is synchronous, and an uncaught throw in an
-  // http.createServer callback does not produce a 500 — it terminates the
-  // process, taking every in-memory PTY session with it. That is what made the
-  // `ext` ReferenceError a remote unauthenticated kill rather than a broken
-  // download, and the same shape was still reachable through EACCES on an
-  // unreadable file (verified) and through TOCTOU on a file rotated away
-  // mid-request. Guard the class, not the instance.
+  // main request try/catch further down — that sits after auth, and moving them
+  // there would make the routes private.
+  //
+  // The whole callback is wrapped (see the top of this handler), so a throw here
+  // is no longer fatal. These narrower guards remain because they turn a
+  // filesystem error into a specific status and log line instead of the generic
+  // 500 the outer net produces — worth keeping on the one surface that is
+  // unauthenticated and reads arbitrary paths.
+  //
+  // History, because it explains why both layers exist: an undefined `ext` here
+  // was a remote unauthenticated process kill, and fixing that one throw left
+  // EACCES on an unreadable file (verified) and TOCTOU on a rotated file
+  // reachable through the identical path. Per-handler guards then still left
+  // `new URL(req.url, ...)` above them. Guard the boundary, not the statement.
   if (method === 'GET' && pathname.startsWith('/exports/')) {
    try {
     const filename = pathname.slice('/exports/'.length);
