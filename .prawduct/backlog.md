@@ -221,7 +221,7 @@
   norms off Critic.
 
 - **[SEC-K4RD]** A destructive operation should not be reachable by GET — `GET /v2/session/file?consume=true` unlinks the file it returns
-  `effort: M · impact: M · area: security · source: critic · added: 2026-08-03 · status: open · stage: requirements · related: CRS-4T8K · refs: .prawduct/artifacts/security-model.md § Known gaps G5, .prawduct/artifacts/api-contract.md § Direction`
+  `effort: M · impact: M · area: security · source: critic · added: 2026-08-03 · status: open · stage: ready · reviewed: 2026-08-03 · related: CRS-4T8K · refs: .prawduct/artifacts/security-model.md § Known gaps G7, .prawduct/artifacts/security-model.md § Known gaps G5, .prawduct/artifacts/api-contract.md § Direction`
 
   Surfaced 2026-08-03 while building the origin gate for `CRS-4T8K`.
   `bridge/v2/routes.js` routes this on `method === 'GET'` (line ~469) and, when
@@ -241,7 +241,9 @@
   defense is a header the server does not control, not the method semantics it
   does.
 
-  **Fix shape:** require `POST` (or `DELETE`) for consume-on-read. That is a
+  **Fix shape (as first proposed — superseded 2026-08-03 by the decision below;
+  kept verbatim because the reasoning it got wrong is the useful part):** require
+  `POST` (or `DELETE`) for consume-on-read. That is a
   **breaking change to the `/v2` surface** — narrowing what an existing path
   accepts — and is therefore governed by the api-contract **Direction** norm,
   which requires a new path-major (`/v3`) for removing or narrowing, never a
@@ -255,6 +257,56 @@
   the decision is visible rather than lost — note that the 2.0.0 major bump was
   the cheapest carrier for a breaking `/v2` change, so deferring it has a real
   cost the owner should weigh (see `REL-BRS7`).
+
+  ---
+
+  **DECISION — 2026-08-03 (discovery). `stage: requirements` → `stage: ready`;
+  the requirement is written and the fix is operator-chosen from four framed
+  options.**
+
+  **The strongest argument is not CSRF, and framing it that way is what kept this
+  item at `requirements`.** RFC 9110 §9.2.1 defines `GET` as a *safe* method — no
+  side effects for which the client is responsible — and real infrastructure is
+  built on that guarantee. Link unfurlers (Slack, Discord), browser prefetch and
+  speculative loads, corporate proxies, security scanners and crawlers all issue
+  bare `GET`s. **None of them sends `Origin` or `Sec-Fetch-Site`, and none of them
+  is a browser driven by a hostile page.** So the `CRS-4T8K` origin gate is blind
+  to every one of them *by construction*, not by oversight: it keys on headers
+  only a browser sets. Anything that ever saw such a URL — in a log, a chat
+  message, a bookmark, a bug report — could delete the file by merely looking at
+  it. That is a far larger population than "a page the operator visited", and it
+  is why the header gate was never going to be the answer here.
+
+  **This also explains the gate's residual** (recorded above as "small in
+  practice"). `GET` is precisely the method browsers do *not* tag with `Origin` —
+  Fetch appends `Origin` when the method is **not** `GET`/`HEAD`. So moving a
+  destructive operation onto any other method converts it into one the gate can
+  *always* see. The residual is not a separate weakness to patch; it is the same
+  fact as this item, seen from the other side.
+
+  **Decided fix.** `GET /v2/session/file` becomes a **pure read**. The consuming
+  form moves to **`POST`**, where every browser-issued request carries `Origin`
+  (so the `CRS-4T8K` gate applies) and where no prefetcher, unfurler or crawler
+  will go.
+
+  **`consume=true` on a `GET` must be REFUSED, not silently ignored.** Returning
+  the bytes without deleting the file would leave the caller believing it had
+  consumed a file that still exists — a correctness bug handed to whoever
+  migrates, which is worse than an error they can see. Refuse loudly.
+
+  **Known consumer: TangleClaw.** It uses `consume` for degraded-wrap
+  capture-back — the feature `consume` shipped for in 1.9.0. The migration is one
+  line, but this is a real first-party consumer, not a hypothetical one, so the
+  change needs to be announced rather than merely released.
+
+  **Norm position.** This is a breaking `/v2` change and is recorded as a
+  departure from the api-contract compatibility (**Direction**) norm — the
+  **second narrowing of the `/v2` surface**, exactly as `api-contract.md`
+  anticipated ("Changing that method is a second narrowing"). Counting all
+  departures from that norm it is the **third** (`BRIDGE_TOKEN` 2026-08-02,
+  `CRS-4T8K` 2026-08-03); counting narrowings of `/v2` it is the second. Note
+  this supersedes the `/v3`-or-deprecation-window framing above: the decision is
+  to take the departure in the 2.0.0 major, not to open a path-major.
 
 - **[UPS-7Z4M]** prawduct-upstream: `audit-learnings` `run_sentinel` hardcodes pytest, so learnings sentinels are inert in this Node/vitest repo
   `effort: S · impact: S · area: prawduct-upstream · source: critic · added: 2026-08-03 · status: open · stage: ready`

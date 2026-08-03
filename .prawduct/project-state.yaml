@@ -1020,7 +1020,7 @@ build_state:
 # governance sees NO active plan — the session briefing warns loudly until
 # it's fixed (STH-5P2W).
 #
-active_build_plan: artifacts/build-plan-cors-origin.md
+active_build_plan: artifacts/build-plan-safe-get.md
 
 # =============================================================================
 # BUILD-PLAN REF ROOT (opt-in, unset by default)
@@ -1106,6 +1106,9 @@ views_enabled: true
 scope_rollups:
   cors-origin:
     chunks: ["01", "02"]
+    releases: ["v2.0.0"]
+  safe-get:
+    chunks: ["01"]
     releases: ["v2.0.0"]
 
 # =============================================================================

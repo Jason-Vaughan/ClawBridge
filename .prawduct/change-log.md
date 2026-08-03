@@ -48,6 +48,35 @@
      derived view. Don't hand-edit them — add/update a tagged entry here and
      run `prawduct-hook regen-views`. -->
 
+## 2026-08-03: Stop a destructive operation from answering GET
+
+<!-- prawduct: chunks=01 | status=shipped | release=v2.0.0 | scope=safe-get -->
+
+**Why:** `GET /v2/session/file?consume=true` unlinked the file it returned. The origin gate
+shipped alongside this cannot see the callers that matter here, and the reason is not CSRF:
+RFC 9110 §9.2.1 defines `GET` as safe, and link unfurlers, browser prefetch, proxies, scanners
+and crawlers all rely on that. None of them sends `Origin` or `Sec-Fetch-Site`; none is a
+browser driven by a hostile page. Anything that ever *saw* such a URL — a log, a chat message,
+a bookmark, a bug report — could destroy the file by merely following it. It also explains the
+gate's residual: `GET` is precisely the method browsers do not tag with `Origin`.
+
+**What:** `GET` is a pure read; the consuming form moves to `POST`. `consume=true` on a `GET`
+is refused with `405` and `Allow: POST` rather than downgraded to a plain read — a caller that
+asked to consume and got `200` would believe the file was gone when it is not, and the
+duplicate capture would surface much later somewhere else. `/v2/api-docs` describes both forms,
+so the change is discoverable from the API itself.
+
+**Norm position:** third recorded departure from the api-contract compatibility norm, second
+narrowing of `/v2`, all three inside 2.0.0. Recorded in `api-contract.md` with the count stated
+explicitly, plus a line saying a fourth should be read as evidence the norm needs amending
+rather than departing from again. An earlier draft called this the "second" departure — the
+miscount is corrected in the build plan rather than quietly fixed, since a wrong count in the
+paragraph arguing the count matters is the tell that nobody was counting.
+
+**Known consumer:** TangleClaw's degraded-wrap capture-back, the feature `consume` shipped for
+in 1.9.0. Migration is one method. Not tracked as its own backlog item — it lands in another
+repo and is recorded in `SEC-K4RD`.
+
 ## 2026-08-03: Gate cross-origin requests when the bridge runs without a token
 
 <!-- prawduct: chunks=01,02 | status=shipped | release=v2.0.0 | scope=cors-origin -->

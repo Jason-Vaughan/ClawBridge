@@ -7,6 +7,12 @@
 
 ## v2.0.0
 
+### safe-get
+
+**Entry:** 2026-08-03: Stop a destructive operation from answering GET
+
+**Chunks shipped:** 01
+
 ### cors-origin
 
 **Entry:** 2026-08-03: Gate cross-origin requests when the bridge runs without a token

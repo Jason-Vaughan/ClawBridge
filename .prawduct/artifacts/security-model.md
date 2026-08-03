@@ -315,8 +315,47 @@ over-narrow claim reads to them as "I broke something extra".
   and shrinking residue rather than a hole with a name — but it is a residue, not zero.
 - The deeper defect is that a destructive operation is reachable by GET at all
   (`?consume=true` unlinks). No header check is as strong as not accepting the request shape;
-  that is filed rather than fixed here, because changing the method is a separate requirement
-  and not this change to make silently.
+  that was filed rather than fixed here, because changing the method is a separate requirement
+  and not this change to make silently. It is now G7 below.
+
+### G7 — A destructive operation answered `GET` · `SEC-K4RD` · **FIXED 2026-08-03**
+
+`GET /v2/session/file?consume=true` unlinked the file it returned.
+
+**The header checks in G5 cannot cover this, and the reason is not CSRF.** RFC 9110 §9.2.1
+defines `GET` as a *safe* method — no side effects for which the client is responsible — and
+infrastructure is built on that guarantee. Link unfurlers (Slack, Discord), browser prefetch
+and speculative loads, corporate proxies, security scanners and crawlers all issue bare `GET`
+requests, none of them send `Origin` or `Sec-Fetch-Site`, and none of them are browsers driven
+by a hostile page. Anything that ever saw such a URL — in a log, a chat message, a bookmark, a
+bug report — could delete the file by merely looking at it. G5's gate is blind to every one of
+these by construction, because it keys on headers only a browser sends.
+
+It also explains G5's residual. `GET` is precisely the method browsers do *not* tag with
+`Origin` (Fetch appends `Origin` when the method is not `GET`/`HEAD`), so a destructive
+operation on any other method is one the gate can always see.
+
+**Fix:** `GET /v2/session/file` is a pure read. The consuming form moves to `POST`, where every
+browser-issued request carries `Origin` and the G5 gate applies, and where no prefetcher,
+unfurler or crawler will go. `consume` on a `GET` is refused rather than ignored — silently
+returning the bytes without deleting them would leave a caller believing it had consumed a
+file that is still there, which is a correctness bug handed to whoever migrates.
+
+This is a breaking change to `/v2/*`, recorded as a departure in `api-contract.md` alongside
+the compatibility norm it departs from — the third against that norm, and the second narrowing
+of `/v2`.
+
+Coverage: `bridge/v2/__tests__/session-file.test.js`, the `(G7)` describe block. Re-derived by
+running each mutation on 2026-08-03:
+
+| Reintroduced defect | Tests that go red |
+|---|---|
+| Drop the 405 guard and honour `consume` on `GET` again | *refuses consume=true on GET and leaves the file in place*, *names the method to use…*, *refuses rather than quietly downgrading…* |
+| Downgrade instead of refusing — ignore `consume` on `GET` and return 200 | the same three; the file survives either way, so it is the refusal, not the unlink, that these pin |
+
+The compatibility half — *leaves the plain read untouched* and *still reads on POST without
+consume* — stays green under both, which is what shows the change is scoped to the consuming
+form rather than to the route.
 
 ## Accepted risk — pre-fix disclosure residue (2026-08-02)
 

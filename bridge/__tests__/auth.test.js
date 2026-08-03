@@ -725,13 +725,19 @@ describe('the origin gate on an unauthenticated bridge', () => {
     expect(res.headers['access-control-allow-origin']).toBe(allowedOrigin);
   });
 
-  it('lets that same GET through when no browser is involved, so the guard above means something', async () => {
+  it('lets the consuming request through when no browser is involved, so the guard above means something', async () => {
     // The falsification partner of the previous test. Without it, a gate that
     // refused everything unconditionally would look identical.
+    //
+    // POST rather than GET since 2.0.0: consuming moved off GET because a safe
+    // method must not delete (security-model G7). The claim under test is
+    // unchanged — a caller sending no Origin reaches the handler and the
+    // side effect happens — only the method carrying it moved.
     const { projectsDir, filePath } = makeProjectsDir();
     const bridge = await openBridge({ PROJECTS_DIR: projectsDir });
 
     const res = await httpSend(bridge.port, {
+      method: 'POST',
       path: '/v2/session/file?project=demo&path=target.txt&consume=true',
     });
 

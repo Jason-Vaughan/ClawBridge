@@ -88,7 +88,8 @@ both chunks built and committed on `release/2.0.0`. The design grew one signal u
 keying on `Origin` alone missed the no-cors GET, which carries none, so `Sec-Fetch-Site` backs
 it up — and chunk 02 found the same defect class again in its own work: a malformed allowlist
 entry failed closed silently, so `/health` would have reported it as active. Both are fixed and
-falsified. Suite 604 → 629.
+falsified. The suite started this plan at 604; `.prawduct/.test-evidence.json` carries the
+current figure — restating it here is what produced a wrong `629` that outlived two commits.
 
 **Plan complete.** The `cumulative` review that `Type: cumulative-final` calls for has run
 (0 blocking, 7 warnings), its findings are fixed, and a `verify-resolutions` pass confirmed all

@@ -68,15 +68,40 @@ It meets the same four conditions that made the `BRIDGE_TOKEN` departure honest:
 - It ships marked `BREAKING` in a major, so the cost is visible in the version rather than
   arriving in a patch.
 
-**The norm itself is re-affirmed, not weakened.** Two departures now exist, both security
-fixes to states that endangered consumers, both with an explicit escape hatch and a major
-version carrying the cost. Neither licenses a *feature* removal in anything but a
+**The norm itself is re-affirmed, not weakened.** Every recorded departure is a security fix
+to a state that endangered consumers, each with an explicit escape hatch or migration and a
+major version carrying the cost. None licenses a *feature* removal in anything but a
 path-major — that remains the rule, and the next narrowing that is not a security fix does
 not get to cite these.
 
-Still open under the norm and deliberately not taken here: `SEC-K4RD` argues a destructive
-operation should not answer `GET` at all. Changing that method is a second narrowing, and it
-surfaced mid-build rather than being planned, so it is filed rather than folded in.
+`SEC-K4RD` — a destructive operation answering `GET` — was open at this point and is now
+recorded below.
+
+### Recorded departure — 2026-08-03, consuming reads move to `POST` (`SEC-K4RD`)
+
+`GET /v2/session/file?consume=true` unlinked the file it returned. The consuming form now
+requires `POST`; `consume=true` on a `GET` is refused with `405` and `Allow: POST`. This
+narrows `/v2/*`, so the norm applies and this is a departure.
+
+**This is the third recorded departure from this norm, and the second narrowing of `/v2`.**
+That count is the thing worth justifying, not the change: a norm departed from repeatedly is
+a norm on its way to not binding, and "it was a security fix" is available as an excuse to
+almost anything if nobody is counting.
+
+What makes this one hold up beyond judgment: **RFC 9110 §9.2.1 defines `GET` as safe.** The
+prior behavior violated a guarantee every HTTP intermediary is entitled to rely on — link
+unfurlers, prefetchers, proxies, scanners and crawlers all issue bare `GET`s — so no consumer
+could *correctly* have depended on it, and several classes of software that never consented to
+being consumers could trigger it. That is a narrower and more checkable claim than "we judged
+the old behavior unsafe", which is what the other two departures rest on.
+
+Known consumer: TangleClaw's degraded-wrap capture-back, the feature `consume` shipped for in
+1.9.0. The migration is changing one method. `/v2/api-docs` describes both forms at runtime,
+so a consumer discovers the change from the API itself rather than only from this file.
+
+**Where the line now sits.** Three departures, all security, all in one major. A fourth should
+be read as evidence the norm needs amending rather than departing from again — and amending it
+is a decision to record deliberately, not something to arrive at by accumulating exceptions.
 
 ## Canonical sources — do not duplicate them here
 

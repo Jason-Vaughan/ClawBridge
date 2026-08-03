@@ -111,7 +111,9 @@ Two further properties are worth stating outright, because both are deliberate:
 
 **Without a token, cross-origin browser requests are refused before routing.** Loopback origins are allowed, as is anything named exactly in `CLAWBRIDGE_ALLOWED_ORIGINS`; everything else gets a `403`. This is what makes `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` safe to state as "nothing else can reach the port" — previously it also required that no browser run on the host, which was not a condition an operator could actually satisfy.
 
-The check reads two headers, because one is not enough: `Origin` when the browser sends it, and `Sec-Fetch-Site` when it does not. A no-cors `GET` — an `<img src>`, a `<script src>`, an `<iframe>`, a typed URL — carries no `Origin` at all, and one of those could otherwise have reached `GET /v2/session/file?consume=true`, which deletes the file it returns.
+The check reads two headers, because one is not enough: `Origin` when the browser sends it, and `Sec-Fetch-Site` when it does not. A no-cors `GET` — an `<img src>`, a `<script src>`, an `<iframe>`, a typed URL — carries no `Origin` at all, so keying on `Origin` alone would miss the easiest request there is to forge.
+
+**Destructive operations do not answer `GET` at all.** That is a separate guarantee, and it holds even where the gate cannot see: `GET` is a *safe* method (RFC 9110 §9.2.1), and link unfurlers, prefetchers, proxies and crawlers all rely on that while sending neither header. Consuming a file therefore requires `POST` — see the 2.0.0 breaking changes.
 
 Non-browser callers send neither header and are unaffected: `curl`, containers, and orchestrators behave exactly as before. Two consequences worth knowing: a browser page cannot read `/health` cross-origin unless its origin is allowed, and this defends against *browsers* — a direct attacker who can reach an unauthenticated port needs no CSRF, since every route is already open to them. Check the live posture at `/health` under `cors`.
 
