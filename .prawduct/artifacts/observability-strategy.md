@@ -50,7 +50,16 @@ otherwise look identical:
 was added after #16: the payload could not distinguish a healthy bridge from one with its
 front door open, so an operator reading `/health` was told "fine" either way.
 
-Stdout carries what `/health` cannot: session spawn failures with exit code and last output,
+Stdout carries what `/health` cannot: **rejected authentication attempts**
+(`[bridge] 401 <method> <path> from <peer>`, added 2026-08-02) — the only signal that
+someone is probing a daemon that binds `0.0.0.0` and whose authenticated routes spawn host
+shells. **This is a control that only works if someone watches it**: there is no alerting,
+so it is worth a log filter on `[bridge] 401`. A burst from an unexpected peer is the event
+worth caring about; a steady trickle is usually a client that missed a token rotation. The
+presented credential is deliberately never logged — that would move a would-be secret from
+the wire into a file that outlives the request (regression-pinned in `auth.test.js`).
+
+Stdout also carries session spawn failures with exit code and last output,
 node-pty load failure with exact fix instructions, extension load/close failures. Added in
 1.6.0 after event-log-only reporting was found to leave unattended operators blind — the
 defect was the invisibility, not just the crash.

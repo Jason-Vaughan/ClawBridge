@@ -393,11 +393,11 @@ describe('rejected requests leave a trace, without leaking the credential', () =
     await bridge.waitForListening();
 
     await httpGet(bridge.port, '/v2/sessions', 'definitely-the-wrong-token');
-    await bridge.waitForOutput('401');
+    await bridge.waitForOutput('[bridge] 401');
 
     const { stdout, stderr } = bridge.getOutput();
     const output = stdout + stderr;
-    expect(output).toContain('401');
+    expect(output).toContain('[bridge] 401');
     expect(output).toContain('/v2/sessions');
     expect(output).toMatch(/127\.0\.0\.1|::1|::ffff:127\.0\.0\.1/);
   });
@@ -411,11 +411,11 @@ describe('rejected requests leave a trace, without leaking the credential', () =
 
     const presented = 'super-secret-presented-value-9f3a';
     await httpGet(bridge.port, '/v2/sessions', presented);
-    await bridge.waitForOutput('401');
+    await bridge.waitForOutput('[bridge] 401');
 
     const { stdout, stderr } = bridge.getOutput();
     const output = stdout + stderr;
-    expect(output).toContain('401');            // it did log the rejection...
+    expect(output).toContain('[bridge] 401');   // it did log the rejection...
     expect(output).not.toContain(presented);    // ...without the credential
     expect(output).not.toContain(TEST_TOKEN);   // nor the real one
   });

@@ -208,6 +208,9 @@ local until the fix ships.
   public sub-route in v1.
 - **`isAllowedDir`** constrains session working directories to `PROJECTS_DIR`,
   `PRAWDUCT_DIR`, or the bridge directory.
+- **Rejected auth attempts are logged** with method, path and coarse peer — and never the
+  presented credential. Detection, not prevention, but on an `0.0.0.0` daemon it is the only
+  probe signal that exists. See `observability-strategy.md`.
 - **Parser biased to false negatives** — a missed prompt stalls visibly rather than firing a
   keystroke into the wrong context.
 

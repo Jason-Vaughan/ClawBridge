@@ -75,7 +75,7 @@ most recently threw.
 **Cost:** the startup change is BREAKING for any deployment currently running tokenless, and
 is marked as such so the version bump matches its impact on published consumers.
 
-**Coverage:** 39 new tests across `auth.test.js` and `exports.test.js`; `/exports` had none
+**Coverage:** 47 new tests across `auth.test.js` and `exports.test.js`; `/exports` had none
 at all, which is how a crash on its happy path survived. Each guard verified by
 reintroducing the defect it guards.
 

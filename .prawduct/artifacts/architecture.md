@@ -80,10 +80,17 @@ worse than dying on a product whose job is adjudicating what an agent may do to 
 It would also mask exactly the class of defect that produced `EXP-9WQ2`, converting a loud
 remote kill into a silent wrong answer.
 
-The alternative in force: **guard at the boundaries**. Handlers that run outside the main
-request `try/catch` — today only the two pre-auth `/exports` handlers — carry their own,
-returning 500. Any future route added before the auth check inherits that obligation, and
-that is the rule to check in review rather than a global net to fall back on.
+The alternative in force: **guard at the request boundary**. The entire
+`http.createServer` callback is wrapped, returning 500 on anything unexpected, and the two
+pre-auth `/exports` handlers keep their own narrower guards so a filesystem error there
+produces a useful status rather than a generic one.
+
+Per-handler guards alone were tried first and were not enough — `new URL(req.url, ...)`, the
+first statement of the callback, sat above both of them and still killed the process on a
+malformed request target. That is why the wrapper exists: **do not remove it in favour of
+per-handler guards.** It is a *per-request* net, which is categorically different from the
+process-level `uncaughtException` handler rejected above: the request fails, the process
+keeps its invariants, and nothing continues from undefined state.
 
 Module dependency order (`types` ← `pty` / `permission-parser` / `policy` / `event-log` ←
 `sessions` ← `routes` ← `server`) is acyclic and enforced by convention; the module
