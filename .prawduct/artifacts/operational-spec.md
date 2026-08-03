@@ -48,7 +48,8 @@ looks like a crash loop, so triage should read the message rather than assume a 
 
 ## Release procedure
 
-1. `npm test` — all 598 executed must pass (612 total; 14 e2e skipped). A failure blocks
+1. `npm test` — every executed test must pass; the live-PTY e2e file is skipped unless
+   `RUN_E2E=1`, and a skipped suite is never counted as a passing one. A failure blocks
    the deploy, full stop.
    **On a host with a real `bridge/.env`:** the auth suite refuses to run if that file
    defines `BRIDGE_TOKEN` or `CLAWBRIDGE_ALLOW_UNAUTHENTICATED`, because the loader would
@@ -65,7 +66,7 @@ looks like a crash loop, so triage should read the message rather than assume a 
 6. Deploy incrementally; restart via `launchctl stop com.clawbridge.builder` (KeepAlive
    relaunches).
 7. Verify `/health`: `bridge` version is the new one, `ptySpawnable: true`,
-   `v2ActiveSessions: 0`, `auth.required: true`, and **no `insecure` key**. The last two
+   `activeSessions: 0`, `auth.required: true`, and **no `insecure` key**. The last two
    are the ones a deploy can silently get wrong — an environment that lost `BRIDGE_TOKEN`
    now refuses to start, but one carrying `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` starts
    wide open and looks otherwise healthy.
@@ -100,10 +101,12 @@ Start from the signal, not the code. Every entry maps to a documented failure mo
 | Session never completes | Nothing is broken | Claude Code does not self-terminate — fragility #6 |
 | `posix_spawnp failed` | `ptySpawnable` on `/health` | Exec bit lost after boot-time heal |
 | Sessions start then die instantly | `ptyMode` | Running in `pipes-fallback` |
-| Everything works without a token | `insecure` on `/health` | `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` is set. A deliberate opt-in, not a breach — but confirm it was deliberate *here*, that nothing else can reach the port, **and that no browser runs on this host**. CORS is wildcard (`CRS-4T8K`), so an unreachable port is not sufficient: a page the operator visits can call the API cross-origin |
+| Everything works without a token | `insecure` on `/health` | `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` is set. A deliberate opt-in, not a breach — but confirm it was deliberate *here* and that nothing else can reach the port. Cross-origin browser requests are refused in this mode, so an unreachable port is now sufficient; read `cors` on `/health` to confirm the gate is active and to see whether `CLAWBRIDGE_ALLOWED_ORIGINS` widened it |
+| A browser UI gets `403` from an unauthenticated bridge | `cors.mode: gated` on `/health`, `Origin not allowed` / `Cross-site request not allowed` in the body | Working as designed — the origin gate refuses browser requests from outside the allowed set. Check `cors.additionalOrigins` on `/health`; if the UI's origin is missing, add it to `CLAWBRIDGE_ALLOWED_ORIGINS` as a serialized origin (no trailing slash) and restart. A malformed entry is warned about at boot and never matches. A no-cors load (`<img>`, `<script>`) is refused even from a same-site origin — use `fetch` |
 | Service restarts forever, never listens | the `FATAL:` block in the log | `BRIDGE_TOKEN` missing from the service environment. Set it; do not reach for the override to stop the loop |
 | Bridge dies on an `/exports` request | the stack trace in the log, then the bridge version | Should no longer be possible: since `2b55872` the whole request callback is wrapped, so an unexpected throw returns 500 rather than ending the process. A recurrence means something threw *outside* that wrapper — read the trace rather than assuming a pre-fix build |
 | Repeated `[bridge] 401` lines | the peer address in the log | Someone is probing. Expected briefly after a token rotation a client missed; a burst from an unfamiliar peer is not. There is no alerting — this line is the only signal |
+| Repeated `[bridge] 403` lines | the `origin=` field in the log | The origin gate is refusing browser traffic on a tokenless bridge. If the origin is one you recognise, the allowlist is wrong: compare it against `cors.additionalOrigins` on `/health`. A **well-formed but wrong** entry — right host, wrong port — raises no boot warning and appears as active, so this log line is the only place the origin actually presented is visible. An unfamiliar origin means a page somebody visited tried to drive this bridge, which is the gate doing its job |
 
 **When in doubt on the parser, do not "fix" it from a hypothesis.** The bias to false
 negatives is deliberate; overeager matching caused bugs #5, #6, and #10. Reproduce, add a

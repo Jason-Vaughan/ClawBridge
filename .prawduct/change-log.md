@@ -48,9 +48,117 @@
      derived view. Don't hand-edit them — add/update a tagged entry here and
      run `prawduct-hook regen-views`. -->
 
+## 2026-08-03: Stop publishing session transcripts, which were also being served
+
+<!-- prawduct: chunks=01 | status=shipped | release=v2.0.1 | scope=pkg-hygiene -->
+
+**Why:** `package.json`'s `files` whitelist listed `bridge/`, and npm's whitelist overrides
+`.gitignore`, so the untracked `bridge/.session-history/` shipped in every tarball up to and
+including 2.0.0. Found by the independent PR reviewer, which inspected the published artifact
+rather than the diff — neither the Critic nor I had looked there.
+
+The first write-up called it a hygiene defect and told operators "nothing reads them". Critic
+falsified that. `HISTORY_DIR` resolves to the *installed* `bridge/.session-history/`, the
+`SessionManager` constructor loads every `.json` there at startup keyed by the `project` field
+inside the maintainer's file, and `GET /v2/session/last` serves that map. Verified against a
+real install of the published tarball: `?project=tictactoe` returns `found: true` with 41 KB of
+raw PTY transcript and `exitCode: 129` before the operator has run anything. An orchestrator
+polling that endpoint to detect completion can act on a snapshot that was never its own. The
+advice was worse than wrong — "nothing reads them" says leaving the files in place is safe, and
+leaving them in place is what keeps them served.
+
+**What:** explicit `files` whitelist; `prepublishOnly` runs the suite, since `TST-RYHK` records
+this repo has no CI and nothing otherwise obliged a check on the publishing machine. Published
+as 2.0.1 so `latest` is clean and existing installs have an upgrade path rather than a manual
+`rm -rf` instruction. Content of the published files was scanned — no credentials, host paths
+or usernames — so nothing to rotate.
+
+**Guard:** `bridge/__tests__/packaging.test.js`, asserting on the real `npm pack --dry-run
+--json` manifest rather than on the `files` array, and **planting its own subject** because the
+directory is untracked — without that, a clean checkout with a reverted whitelist emits no
+transcript paths and the guard passes green exactly where it matters. Both directions
+falsified, including with the real directory moved aside.
+
+## 2026-08-03: Stop a destructive operation from answering GET
+
+<!-- prawduct: chunks=01 | status=shipped | release=v2.0.0 | scope=safe-get -->
+
+**Why:** `GET /v2/session/file?consume=true` unlinked the file it returned. The origin gate
+shipped alongside this cannot see the callers that matter here, and the reason is not CSRF:
+RFC 9110 §9.2.1 defines `GET` as safe, and link unfurlers, browser prefetch, proxies, scanners
+and crawlers all rely on that. None of them sends `Origin` or `Sec-Fetch-Site`; none is a
+browser driven by a hostile page. Anything that ever *saw* such a URL — a log, a chat message,
+a bookmark, a bug report — could destroy the file by merely following it. It also explains the
+gate's residual: `GET` is precisely the method browsers do not tag with `Origin`.
+
+**What:** `GET` is a pure read; the consuming form moves to `POST`. `consume=true` on a `GET`
+is refused with `405` and `Allow: POST` rather than downgraded to a plain read — a caller that
+asked to consume and got `200` would believe the file was gone when it is not, and the
+duplicate capture would surface much later somewhere else. `/v2/api-docs` describes both forms,
+so the change is discoverable from the API itself.
+
+**Norm position:** third recorded departure from the api-contract compatibility norm, second
+narrowing of `/v2`, all three inside 2.0.0. Recorded in `api-contract.md` with the count stated
+explicitly, plus a line saying a fourth should be read as evidence the norm needs amending
+rather than departing from again. An earlier draft called this the "second" departure — the
+miscount is corrected in the build plan rather than quietly fixed, since a wrong count in the
+paragraph arguing the count matters is the tell that nobody was counting.
+
+**Known consumer:** TangleClaw's degraded-wrap capture-back, the feature `consume` shipped for
+in 1.9.0. Migration is one method. Not tracked as its own backlog item — it lands in another
+repo and is recorded in `SEC-K4RD`.
+
+## 2026-08-03: Gate cross-origin requests when the bridge runs without a token
+
+<!-- prawduct: chunks=01,02 | status=shipped | release=v2.0.0 | scope=cors-origin -->
+
+**Why:** `CRS-4T8K` proposed narrowing the wildcard CORS origin, and narrowing it would not
+have closed the hole. CORS decides whether a page may *read* a response, not whether the
+request is delivered — and `parseBody` ignores `Content-Type`, so a `text/plain` POST is a
+CORS-safelisted simple request that no preflight ever gates. A bare cross-origin GET is
+easier still, and `GET /v2/session/file?consume=true` unlinks the file it returns. A page the
+operator merely visited could therefore spawn agents and delete files on the host.
+
+**What:** while `BRIDGE_TOKEN` is empty, refuse before routing — and echo the allowed origin
+instead of `*`. The set is loopback plus whatever `CLAWBRIDGE_ALLOWED_ORIGINS` names exactly;
+absent, it widens nothing. Callers that send neither browser header — curl, containers, the
+packaged client — are untouched, and with a token set nothing changes.
+
+Two signals, not one. The first pass keyed only on `Origin`, and Critic caught that browsers
+append it only when the request mode is CORS or the method is not GET/HEAD: a no-cors GET
+(`<img src>`, `<script src>`, `<iframe>`, navigation) carries none and would have driven the
+consume-on-read route straight through, which was this change's own headline scenario. The
+test passed only because it set `Origin` by hand — `fetch()` does, an `<img>` tag never does.
+`Sec-Fetch-Site` now covers that case; `Origin` still decides when present, so a loopback dev
+UI on another port is not caught by its own `same-site` report.
+
+**Made the posture observable (chunk 02).** `/health` now carries `cors`, reporting `gated` vs
+`wildcard`, whether loopback is allowed, and which additional origins are in force — because a
+security control nobody can see is one that regresses unnoticed, and nobody reads stdout on a
+launchd service at 3am. Building that surfaced a second defect of the same kind: an entry with
+a trailing slash fails closed *silently*, so `/health` would have listed a configured-but-inert
+origin as active and answered the operator's question with the opposite of the truth.
+Malformed entries are now split into `cors.invalidOrigins` with a warning, and named at boot.
+
+**Records reconciled (chunk 02).** The precondition "and no browser runs on this host" was
+enforceable nowhere and stated in five places; it is now enforced instead of requested, so the
+FATAL startup message, README Security Posture, the README env table and the operational-spec
+triage row all drop it. Three `## [2.0.0]` CHANGELOG entries were corrected rather than
+appended to — that version has not shipped, so entries claiming the origin narrowing was "left
+as a separate decision" described 2.0.0 wrongly. The departure from the api-contract
+compatibility norm is recorded in `api-contract.md` beside its `BRIDGE_TOKEN` sibling, with the
+norm re-affirmed rather than weakened.
+
+**Deviation from the plan:** the plan called for a `docs/bridge-v2-bug-index.md` row mapping
+this defect to its regression test. That index covers the numbered v2 broker bugs whose tests
+live in `regression.test.js`; the two prior security defects are recorded in the security
+model instead. Rather than misfile a server-level security control as a broker bug, the index
+gained a pointer to where security defects and their guards are recorded, and its stale
+"bugs #1–12" header (13 rows) became an invariant.
+
 ## 2026-08-03: Close the documented install path around the auth guard
 
-<!-- prawduct: chunks=01 | status=shipped -->
+<!-- prawduct: chunks=01 | status=shipped | release=v2.0.0 -->
 
 **Why:** the `SEC-UTP4` guard checks that `BRIDGE_TOKEN` is *present*. `.env.example`
 shipped `BRIDGE_TOKEN=changeme`, and README Quickstart step 2 says to copy that file — so
@@ -82,14 +190,16 @@ not what made this a defect — the defect was shipping the weak value.
 
 ## 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
 
-<!-- prawduct: chunks=01,02 | status=shipped -->
+<!-- prawduct: chunks=01,02 | status=shipped | release=v2.0.0 -->
 
-<!-- No release= tag on purpose: the BREAKING marker computes a major bump, but the
-     version is the owner's decision and nothing in this bundle ships it — package.json
-     is still 1.9.1 and CHANGELOG keeps everything under [Unreleased]. Since /health
-     reports the package version, asserting v2.0.0 here would have an operator reading
-     1.9.1 from a build whose release notes claimed otherwise. Add release=vX.Y.Z at
-     release-prep and re-run regen-views. -->
+<!-- DISCHARGED 2026-08-03 — this note asked for a release= tag at release-prep, and
+     release-prep added one (see the tag line above), so the two no longer disagree.
+     Kept as the record of why the tag was withheld at the time: the BREAKING marker
+     computed a major bump, but the version was the owner's decision and nothing in
+     that bundle shipped it — package.json was still 1.9.1 with everything under
+     [Unreleased]. Since /health reports the package version, asserting v2.0.0 then
+     would have had an operator reading 1.9.1 from a build whose release notes claimed
+     otherwise. That reasoning still governs the NEXT unreleased bundle. -->
 
 **Why:** the bridge treated an unset `BRIDGE_TOKEN` as "authentication optional" and served
 every route on a `0.0.0.0` bind while `/health` reported healthy — the auth layer resolving

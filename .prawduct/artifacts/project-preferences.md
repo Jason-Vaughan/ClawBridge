@@ -26,10 +26,32 @@ Developer preferences for how code is written in this project. Captured during d
 
 - **Framework**: vitest 3 (`npm test` → `vitest run`).
 - **Style**: `describe`/`it` with full-sentence behavioral names. Tests assert observable behavior through the public surface — several suites spawn a real bridge subprocess and drive it over HTTP rather than reaching into internals.
-- **Coverage expectations**: Happy path *and* error paths, and — non-negotiable here — **a named regression test for every known bug**. `docs/bridge-v2-bug-index.md` maps all 13 known bugs to their tests; `regression.test.js` is the home for them. A fixed bug without a regression test is not fixed.
+- **Coverage expectations**: Happy path *and* error paths, and — non-negotiable here — **a named regression test for every known bug**. A fixed bug without a regression test is not fixed. Two indexes, by defect kind: `docs/bridge-v2-bug-index.md` maps every numbered v2 broker bug to its test, homed in `regression.test.js`; security defects carry an id rather than a number and are mapped from `.prawduct/artifacts/security-model.md` § Known gaps, each naming the guard that lives with the boundary it defends.
+
+  `[DECISION: split the index by defect kind rather than routing security defects into the v2 broker bug index | 2026-08-03. The "every known bug is mapped" rule is unchanged and still binds — what changed is that it is now satisfied by two indexes instead of one. The prior wording named the broker index as the sole map, but the two security defects fixed before it (SEC-UTP4, EXP-9WQ2) were already recorded in the security model and never got numbers or rows, so the single-index wording described a practice the project was not following. Filing a server-level origin gate as numbered broker bug #14, with its test in regression.test.js rather than beside the auth boundary it guards, would have made the index less useful to the person it exists for. | RATIFIED by the owner 2026-08-03, put alongside the alternative of one index for everything; the split stands]`
 - **Testing strategies**: Contract/subprocess testing for the HTTP and tools-extension surfaces; fixture-driven parsing tests that replay recorded PTY output; live end-to-end against a real Claude Code binary, gated behind `RUN_E2E=1`.
 - **Test location**: Colocated `__tests__/` beside the code — `bridge/__tests__/` for the server surface, `bridge/v2/__tests__/` for the broker. Fixtures in `bridge/__tests__/fixtures/`.
 - **Parallelization**: vitest defaults (no custom pool config). Full suite runs in ~6s.
+
+### Do not work while the Critic is running
+
+**Wait for the review to report before touching the tree.** No edits, no commits, no
+"productive" parallel work on the same branch — read its findings, then act.
+
+Why, from 2026-08-03: the Critic reviews a *tree*, and the evidence model composes facts over
+trees. Editing during a run silently invalidates the fact it is about to record — that happened
+once this session, and a second review had to be spent re-covering ground. The subtler cost is
+attention: several of that session's defects (a miscount inside the paragraph arguing counts
+matter, and a public-repo disclosure written one commit after the same rule had been applied)
+went in while a review was in flight and half the reasoning was elsewhere. A review is a
+checkpoint, not spare capacity.
+
+Owner instruction, 2026-08-03: *"i dont like our work overlapping the critic. this is where and
+why mistakes happen."*
+
+Deep-scrubbing your own diff by **reading** is fine and encouraged — the prohibition is on
+changing it. If something must be done while waiting, prefer work that touches nothing the
+review covers, and prefer waiting.
 
 ### The rule that outranks the others
 
@@ -92,7 +114,7 @@ This per-preference table is the product's **norm index** (`/prawduct:methodolog
 | Preference / norm | Mechanism | Enforcement artifact | Audit home | Why |
 |---|---|---|---|---|
 | Fail-closed permission evaluation — errors and unmatched cases resolve to `require_review`, never approval | Test | `bridge/v2/__tests__/policy.test.js` | advisory | Absent or broken configuration must never widen authority. A convenient failure mode on the safety mechanism defeats the product. |
-| Every fixed bug gets a named regression test, mapped in `docs/bridge-v2-bug-index.md` | Test | `bridge/v2/__tests__/regression.test.js` | janitor | This surface regresses on someone else's release schedule. The bug index is the memory; without it, the same TUI change costs the same debugging twice. |
+| Every fixed bug gets a named regression test — numbered broker bugs mapped in `docs/bridge-v2-bug-index.md`, security defects in `security-model.md` § Known gaps | Test | `bridge/v2/__tests__/regression.test.js`, `bridge/__tests__/auth.test.js` | janitor | This surface regresses on someone else's release schedule. The index is the memory; without it, the same TUI change costs the same debugging twice. Split by kind so each guard sits with the boundary it defends. |
 | Live E2E smoke run required for any parser / ANSI / trust-buffer / PTY-timing change | Critic | — (`RUN_E2E=1 npm test`, evidenced in the PR) | janitor | Proven across nine E2E rounds: green unit tests do not imply a working live PTY. Rollback norm 8. |
 | Parser stays biased to false negatives — never widen matching for recall | Critic | — | janitor | A missed prompt stalls visibly; a spurious one injects a keystroke into the wrong context and corrupts silently. Root cause of bugs #5, #6, #10. |
 | Cursor-right (`\x1b[\d*C`) strips to a **space**, never to empty | Test | `bridge/v2/__tests__/permission-parser.test.js` | janitor | Claude Code uses it as a token separator; stripping to empty concatenates tokens and breaks approval matching. Bug #11. |

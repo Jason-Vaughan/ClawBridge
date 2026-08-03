@@ -1,8 +1,8 @@
 {
   "name": "@jason-vaughan/clawbridge",
-  "version": "1.9.1",
+  "version": "2.0.1",
   "private": false,
-  "description": "ClawBridge — PTY permission-broker bridge for orchestrating Claude Code sessions",
+  "description": "ClawBridge \u2014 PTY permission-broker bridge for orchestrating Claude Code sessions",
   "keywords": [
     "claude",
     "claude-code",
@@ -27,7 +27,11 @@
     "node": ">=18"
   },
   "files": [
-    "bridge/",
+    "bridge/*.js",
+    "bridge/.env.example",
+    "bridge/com.clawbridge.builder.plist",
+    "bridge/__tests__/",
+    "bridge/v2/",
     "docs/",
     "examples/",
     "scripts/",
@@ -36,6 +40,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
+    "prepublishOnly": "vitest run",
     "start": "node bridge/server.js",
     "test": "vitest run",
     "test:watch": "vitest",

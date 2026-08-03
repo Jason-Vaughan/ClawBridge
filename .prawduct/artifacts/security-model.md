@@ -3,10 +3,9 @@
 Authored 2026-08-02 during discovery reconciliation. This is the first time ClawBridge's
 security posture has been written down in one place — the README states a *position* (what
 the safety model is not), and the code implements *mechanisms*, but nothing reconciled the
-two. Doing so surfaced three gaps; three more followed — one from self-review during the
-`SEC-UTP4` fix, two from Critic review of that fix. All six are recorded below. They run
-G1-G4, G6, G5: G6 sits beside G4 because they are the same defect class, and G5 is last
-because it is the only one still open.
+two. Doing so surfaced three gaps, and more followed from self-review, Critic review and PR
+review as the work continued. All are recorded below under § Known gaps, in the order they
+were found rather than renumbered — G6 sits beside G4 because they are the same defect class.
 
 ## What this product is defending
 
@@ -55,11 +54,13 @@ containment boundary has misread it.
 
 ## Known gaps
 
-G1-G3 came from reconciling the code against the stated posture; G4 came from self-review
-during the G1 fix; G6 and G5 from Critic review of that fix. None were introduced by this
-onboarding. G1, G3, G4's crash and G6 are fixed; G2 is an owner-accepted risk; G5 is documented
-and open (`CRS-4T8K`). **This register is not closed** — it is what has been examined so
-far.
+Each entry carries its own status marker, which is the authority — this preamble deliberately
+does not enumerate them, because the enumerated version went stale twice as the register grew.
+**The register is not closed**: it is what has been examined so far, and every entry keeps its
+description of what was wrong even after the fix, because the next defect of that class is
+usually recognised by its shape. None of these were introduced by the Prawduct onboarding; they
+were found by reconciling code against the stated posture, by self-review, and by Critic and PR
+review.
 
 ### G1 — Auth fails OPEN when the token is unset · **FIXED 2026-08-02** · `SEC-UTP4`
 
@@ -217,7 +218,7 @@ handler; see `architecture.md`, which rejects that and says why.
 Three attempts were needed to close one class: fix the undefined variable, then guard both
 `/exports` handlers, then wrap the callback. Each attempt fixed the instance in front of it.
 
-### G5 — Wildcard CORS makes the unauthenticated mode browser-reachable · `CRS-4T8K` · OPEN
+### G5 — Wildcard CORS made the unauthenticated mode browser-reachable · `CRS-4T8K` · **FIXED 2026-08-03**
 
 `bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and the
 preflight allows `POST` with `Content-Type, Authorization`.
@@ -231,13 +232,241 @@ no browser runs here", not "unreachable from the network" — which is how it wa
 written, in the startup warning and the README, by me.
 
 Documented at the header, in the FATAL startup message, in README Security Posture, and in
-the operational-spec triage row. **Not fixed**: narrowing the origin when `TOKEN` is empty
+the operational-spec triage row. ~~**Not fixed**: narrowing the origin when `TOKEN` is empty
 would change CORS behavior for existing container callers, which is an owner decision, not
-a drive-by in a security PR. That is `CRS-4T8K`.
+a drive-by in a security PR.~~ **Superseded 2026-08-03** — fixed, by the two-signal gate
+described below. The "existing container callers" concern turned out not to apply: container
+and CLI callers send neither `Origin` nor `Sec-Fetch-Site`, so the gate is invisible to them,
+and no compatibility shim was needed.
 
 Raised by Critic three times before being acted on. Each pass I classified the whole item
 as the owner's call because *part* of it was — while the unsatisfiable precondition in my
 own prose was mine to fix from the first pass.
+
+The precondition sentence above ("nothing else can reach the port **and** no browser runs
+here") is retained as the record of what was wrong. It is no longer the product's contract:
+the browser half is now enforced rather than requested, so the stated precondition is
+"nothing else can reach the port", which an operator can actually satisfy.
+
+#### The header alone does not close it (2026-08-03)
+
+The remedy first written here — echo only loopback origins, or drop the wildcard when
+`TOKEN` is empty — **would not have made the precondition satisfiable**, and shipping it
+would have produced a fix that documented itself as closing a hole it left open.
+
+`parseBody` does not inspect `Content-Type`; it `JSON.parse`s whatever bytes arrive. So a
+visited page can send `POST /v2/session/start` with `Content-Type: text/plain` — one of the
+three CORS-safelisted content types — which makes it a **simple request**: no preflight, the
+browser delivers it, and the route acts on it. CORS then blocks the page from *reading the
+response*, by which time the agent has spawned. CORS governs response readability, not
+request delivery; it has never been a CSRF defense.
+
+**Decided remedy — both halves, and only the first is load-bearing:**
+
+1. **Reject state-changing requests carrying a disallowed `Origin`**, before routing. This is
+   what stops the simple-request path. It is safe for non-browser callers because they send
+   no `Origin` header at all — curl, containers, and the RentalClaw client are untouched, and
+   that property is the reason this can ship without a compatibility shim.
+2. **Echo the allowed origin instead of `*`**, which covers response readability and makes
+   preflights refuse disallowed origins.
+
+Both apply **only when `TOKEN` is empty**. With a token set, a cross-origin page cannot
+attach `Authorization` without triggering a preflight and holds no token in any case, so the
+wildcard stays and container callers see no change at all.
+
+**`Origin` alone does not see the easiest attack.** Browsers append `Origin` only when the
+request mode is CORS or the method is not GET/HEAD. A no-cors GET — `<img src>`,
+`<script src>`, an `<iframe>`, a top-level navigation — carries none, needs no preflight and
+no script, and would have driven the consume-on-read route straight through an Origin-only
+gate. `Sec-Fetch-Site` covers that case: browsers send it on exactly those loads and no
+non-browser client sends it. So the gate reads `Origin` when present (the more precise
+signal, and the one that keeps a loopback dev UI working, since a different port on the same
+site reports `same-site`), and falls back to `Sec-Fetch-Site` when it is absent.
+
+Coverage: `bridge/__tests__/auth.test.js`. Every guard here was verified by reintroducing the
+defect it guards and watching the named tests go red. Re-runnable, and last re-derived by
+running each mutation on 2026-08-03:
+
+| Reintroduced defect | Tests that go red |
+|---|---|
+| Prefix-match instead of parsing the origin URL | *does not mistake a loopback-prefixed hostname for loopback* |
+| Disable the `Sec-Fetch-Site` branch | *refuses a no-cors GET that carries no Origin at all* **and** *refuses a same-site no-cors load…* — both, because that branch is the only refusal path for a request carrying no `Origin` |
+| Match against the raw allowlist instead of the effective one | *does not honour an allowlist entry it reports as inert* — **not** *refuses the literal null origin…*, which runs with no allowlist configured and so refuses `null` either way |
+| Disable the gate outright | every refusal test, while the compatibility tests stay green — which is what shows the gate is scoped rather than blanket |
+
+Named rather than counted, and named *precisely*, because both failure modes have already
+happened here. An earlier version said "disabling the gate fails 6" and was stale within two
+commits. Its replacement said the `Sec-Fetch-Site` mutation "fails the no-`Origin` consume-GET
+test alone" — true when written, false one test later, because a second no-`Origin` test was
+added in the same work cycle and the claim was never re-derived. It also pointed the
+raw-allowlist mutation at the wrong `null` test of the two that exist. A record of what was
+falsified is only worth having if a maintainer who re-runs it gets what it predicts; an
+over-narrow claim reads to them as "I broke something extra".
+
+**What this does not defend against, stated so it is not over-claimed:**
+
+- Both signals are *headers*, meaningful against browsers (which set them, and page script
+  cannot forge either) and worthless against a direct attacker. In unauthenticated mode a
+  direct attacker needs no CSRF — every route is already open to anyone who can reach the
+  port. This closes the browser vector and nothing else, which is exactly the vector that
+  made the documented precondition unsatisfiable.
+- A browser old enough to send neither `Origin` (on a no-cors GET) nor `Sec-Fetch-Site` is
+  not covered. Fetch Metadata is current in Chrome, Firefox and Safari, so this is a narrow
+  and shrinking residue rather than a hole with a name — but it is a residue, not zero.
+- The deeper defect is that a destructive operation is reachable by GET at all
+  (`?consume=true` unlinks). No header check is as strong as not accepting the request shape;
+  that was filed rather than fixed here, because changing the method is a separate requirement
+  and not this change to make silently. It is now G7 below.
+
+### G7 — A destructive operation answered `GET` · `SEC-K4RD` · **FIXED 2026-08-03**
+
+`GET /v2/session/file?consume=true` unlinked the file it returned.
+
+**The header checks in G5 cannot cover this, and the reason is not CSRF.** RFC 9110 §9.2.1
+defines `GET` as a *safe* method — no side effects for which the client is responsible — and
+infrastructure is built on that guarantee. Link unfurlers (Slack, Discord), browser prefetch
+and speculative loads, corporate proxies, security scanners and crawlers all issue bare `GET`
+requests, none of them send `Origin` or `Sec-Fetch-Site`, and none of them are browsers driven
+by a hostile page. Anything that ever saw such a URL — in a log, a chat message, a bookmark, a
+bug report — could delete the file by merely looking at it. G5's gate is blind to every one of
+these by construction, because it keys on headers only a browser sends.
+
+It also explains G5's residual. `GET` is precisely the method browsers do *not* tag with
+`Origin` (Fetch appends `Origin` when the method is not `GET`/`HEAD`), so a destructive
+operation on any other method is one the gate can always see.
+
+**Fix:** `GET /v2/session/file` is a pure read. The consuming form moves to `POST`, where every
+browser-issued request carries `Origin` and the G5 gate applies, and where no prefetcher,
+unfurler or crawler will go. `consume` on a `GET` is refused rather than ignored — silently
+returning the bytes without deleting them would leave a caller believing it had consumed a
+file that is still there, which is a correctness bug handed to whoever migrates.
+
+This is a breaking change to `/v2/*`, recorded as a departure in `api-contract.md` alongside
+the compatibility norm it departs from — the third against that norm, and the second narrowing
+of `/v2`.
+
+Coverage: `bridge/v2/__tests__/session-file.test.js`, the `(G7)` describe block. Re-derived by
+running each mutation on 2026-08-03:
+
+| Reintroduced defect | Tests that go red |
+|---|---|
+| Drop the 405 guard and honour `consume` on `GET` again | *refuses consume=true on GET and leaves the file in place*, *names the method to use…*, *refuses rather than quietly downgrading…* |
+| Downgrade instead of refusing — ignore `consume` on `GET` and return 200 | the same three; the file survives either way, so it is the refusal, not the unlink, that these pin |
+
+The compatibility half — *leaves the plain read untouched* and *still reads on POST without
+consume* — stays green under both, which is what shows the change is scoped to the consuming
+form rather than to the route.
+
+### G8 — The npm tarball shipped local session transcripts · `PKG-4R7T` · **FIXED 2026-08-03**
+
+`package.json`'s `files` whitelist listed `bridge/`, which pulled
+`bridge/.session-history/*.json` into every published tarball. Confirmed by downloading the
+published 2.0.0 artifact: five snapshots present, one created during that day's own
+verification run. 1.9.1 shipped four of the same.
+
+**Scanned before being written up, and clean** — no credential-shaped strings, no host paths,
+no usernames. So there was no leak and nothing to rotate.
+
+**But "shipped" understated it: the packaged transcripts are loaded and served.** `HISTORY_DIR`
+(`bridge/server.js:376`) resolves to the *installed* `bridge/.session-history/`;
+`SessionManager`'s constructor calls `_loadHistory()` (`bridge/v2/sessions.js:211`), which
+parses every `.json` there and keys it by the `project` field *inside the maintainer's file*;
+`GET /v2/session/last` (`bridge/v2/routes.js:434`) serves that map verbatim. Verified against a
+real install of the published 2.0.0 tarball: `?project=tictactoe` returns `found: true` with
+41 KB of raw PTY transcript and `exitCode: 129`, before the operator has run anything. So this
+is not only a hygiene defect — an orchestrator polling `/v2/session/last` to detect completion
+can act on a snapshot that was never its own. The earlier framing here ("the channel is the
+defect, not the content") was true of packaging alone and did not cover this.
+
+The content concern stands too: boundary 1a and `SEC-PZ50` both record that transcripts are
+unfiltered raw PTY output which may echo `.env` values and keys verbatim, and the set grows with
+every session on whatever machine happens to publish.
+
+**Why gitignore did not prevent it:** npm's `files` whitelist overrides `.gitignore`. The
+directory is untracked, which is exactly what made this invisible — a revert to the old
+whitelist changes no tracked file, produces no diff to review, and republishes whatever
+transcripts are on disk.
+
+Coverage: `bridge/__tests__/packaging.test.js`. It asserts against the manifest
+`npm pack --dry-run --json` actually produces, **not** against the `files` array — an array
+check would pass on any spelling that happens to include the directory. Verified by
+reintroducing the defect on 2026-08-03:
+
+| Reintroduced defect | Tests that go red |
+|---|---|
+| Revert to `files: ["bridge/"]` — the silent-republish case | *carries no session transcripts*, *carries no dotted directory under bridge/…* |
+| Over-narrow the whitelist by dropping `bridge/v2/` | *still ships bridge/v2/routes.js*, *still ships bridge/v2/sessions.js*, *still ships the broker test suites…* |
+
+Pinned in both directions because the first hand-narrowing of this whitelist silently dropped
+`bridge/__tests__/` (`bridge/*.js` does not match a subdirectory), and a guard that only
+forbids would have passed a whitelist that shipped nothing.
+
+The guard **plants its own subject** in `beforeAll` rather than relying on the developer's
+machine holding transcripts. Without that it is a no-op exactly where it matters: the directory
+is untracked, so on a clean checkout a reverted whitelist emits no transcript paths and both
+"does not ship" assertions pass green. Confirmed by moving the real directory aside and
+re-running the mutation. `prepublishOnly` was added alongside, because `TST-RYHK` records that
+this repo has no CI — nothing otherwise obliges the suite to run on the machine that publishes.
+
+## Accepted risk — `CRS-8N3P` disclosed before it was fixed (2026-08-03)
+
+**What happened.** `CRS-8N3P` — wildcard CORS exposing `/health`, `/exports` and `/exports/*`
+cross-origin even when `BRIDGE_TOKEN` is set, because those handlers run ahead of the auth
+check — was written into `.prawduct/backlog.md` with file:line references and the mechanism
+spelled out, and pushed to this **public** repo, while unfixed in 1.9.1 *and* in the 2.0.0 that
+had just been published. That is a direct violation of this project's own rule ("On a public
+repo, fix before documenting a vulnerability" in `learnings.md`), committed **one commit after**
+that same rule had been deliberately applied to sequence the npm publish ahead of the branch
+push. The rule was being followed and broken within the same hour, which is the part worth
+recording: applying a rule once does not install it.
+
+**Why it is accepted rather than remediated.** There is no undo. The commit is reachable on a
+public repo through a *listed branch ref* (`refs/heads/release/2.0.0`), not merely by SHA;
+deleting or rewriting the ref removes the ref, not the objects. That distinction is what makes
+this case worse than the 2026-08-02 residue below, where the branch was deleted and only
+unadvertised SHAs remained. The only real questions were whether to ship a rushed fix or to
+record the acceptance, and the owner chose the latter on 2026-08-03.
+
+**Severity, bounded by verified facts — and the bound is narrower than first written.** The
+first read of this was that exported *session transcripts* — documented here as containing raw
+PTY output including `.env` contents and keys — were reachable. That is wrong: session
+snapshots persist to `bridge/.session-history` (`HISTORY_DIR`, `bridge/server.js:376`), not to
+`EXPORTS_DIR` (`:125`). So this is not a secrets leak by default.
+
+The second read was also wrong, in the direction that flatters the acceptance, and is corrected
+here rather than left standing. It claimed `README.md` had *always* instructed operators to
+point `EXPORTS_DIR` at "a directory you are content to publish", and concluded the exposure
+contradicted no instruction operators had been given. **That is true of 2.0.0 and false of
+1.9.1.** The instruction entered in `4ef4f94`, which post-dates `v1.9.1`; `git show
+v1.9.1:README.md` mentions `EXPORTS_DIR` nowhere, while `v1.9.1:bridge/server.js:593` sets the
+same unconditional wildcard over the same unauthenticated handlers.
+
+So the escalation differs by version, and the worse case belongs to the operators who have not
+upgraded yet:
+
+- **On 2.0.0** — from "anyone who can reach the port" to "any page the operator visits", for a
+  directory the operator was explicitly told to treat as publishable.
+- **On 1.9.1** — the same reachability change, but against an *unlabeled* `$HOME/exports`
+  default that no documentation ever flagged as public. Those operators were given no
+  instruction to contradict.
+
+**Does that change the acceptance?** It does not change the two things the acceptance rests
+on — the disclosure has no undo, and settling a possible fourth departure from the `/v2`
+compatibility norm under disclosure pressure is the decision this record exists to avoid. It
+does raise the priority of `CRS-8N3P`, and the mitigation for the worse half already exists and
+is published: upgrading to 2.0.0 both labels `EXPORTS_DIR` and is where any fix will land. This
+paragraph is the one likely to be quoted at the next triage to argue the fix can wait, so it
+should be read as raising that bar, not lowering it.
+
+**Revisit if any of these change:** `EXPORTS_DIR` stops being operator-curated (anything that
+writes session transcripts or history there); `CRS-8N3P` moves off `stage: design`; or the
+`/v2` norm is amended, which would remove the fourth-departure objection to fixing it directly.
+
+**What remains open.** The behavior itself. `CRS-8N3P` is `stage: design` because the fix is a
+genuine choice, and one of the options is a *fourth* departure from the `/v2` compatibility
+norm — which `api-contract.md` pre-commits should trigger amending that norm rather than
+departing from it again. Deciding that under disclosure pressure is exactly what this
+acceptance exists to avoid; it gets its own cycle.
 
 ## Accepted risk — pre-fix disclosure residue (2026-08-02)
 

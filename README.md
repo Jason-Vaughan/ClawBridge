@@ -107,7 +107,17 @@ Two further properties are worth stating outright, because both are deliberate:
 - **One privilege tier.** There is a single shared `BRIDGE_TOKEN` and no per-caller authorization. Any token holder can act on any project.
 - **Transcripts are unfiltered.** The event log and `/v2/session/transcript` store raw PTY output verbatim, so anything Claude Code prints — the contents of a `.env`, an echoed key, a token in a stack trace — is held in memory and returned in full to any token holder. There is no redaction, by decision rather than by omission: this is a single-operator host daemon, and anyone who can read a transcript already has access to the host those secrets live on. Adding redaction would buy little and would make the transcript a less faithful record of what actually happened.
 
-**CORS is wildcard.** `Access-Control-Allow-Origin: *`, and the preflight allows `POST` with an `Authorization` header. With `BRIDGE_TOKEN` set this is a nuisance rather than a hole — a web page has no credential to send. **In the unauthenticated mode it is a hole**: any page the operator visits can cross-origin `POST /v2/session/start` against `localhost` and spawn an agent with shell access. So `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` requires *both* that nothing else can reach the port *and* that no browser runs on the host — "unreachable from the network" alone is not enough.
+**CORS depends on whether a token is set.** With `BRIDGE_TOKEN` set, `Access-Control-Allow-Origin` is `*`. For every *authenticated* route that is a nuisance rather than a hole — a web page has no credential to send, and cannot attach `Authorization` without tripping a preflight.
+
+**But three routes are unauthenticated by design** — `GET /health`, `GET /exports`, and `GET /exports/*` — so "no credential" does not protect them. With the wildcard, a page the operator visits can read the export listing and the contents of every file under `EXPORTS_DIR` cross-origin, in the default token-holding configuration. Point `EXPORTS_DIR` at a directory you are content to publish (the environment table says the same), and treat the wildcard as the reason that instruction is not advisory. Tracked as `CRS-8N3P`.
+
+**Without a token, cross-origin browser requests are refused before routing.** Loopback origins are allowed, as is anything named exactly in `CLAWBRIDGE_ALLOWED_ORIGINS`; everything else gets a `403`. This is what makes `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` safe to state as "nothing else can reach the port" — previously it also required that no browser run on the host, which was not a condition an operator could actually satisfy.
+
+The check reads two headers, because one is not enough: `Origin` when the browser sends it, and `Sec-Fetch-Site` when it does not. A no-cors `GET` — an `<img src>`, a `<script src>`, an `<iframe>`, a typed URL — carries no `Origin` at all, so keying on `Origin` alone would miss the easiest request there is to forge.
+
+**Destructive operations do not answer `GET` at all.** That is a separate guarantee, and it holds even where the gate cannot see: `GET` is a *safe* method (RFC 9110 §9.2.1), and link unfurlers, prefetchers, proxies and crawlers all rely on that while sending neither header. Consuming a file therefore requires `POST` — see the 2.0.0 breaking changes.
+
+Non-browser callers send neither header and are unaffected: `curl`, containers, and orchestrators behave exactly as before. Two consequences worth knowing: a browser page cannot read `/health` cross-origin unless its origin is allowed, and this defends against *browsers* — a direct attacker who can reach an unauthenticated port needs no CSRF, since every route is already open to them. Check the live posture at `/health` under `cors`.
 
 If your deployment breaks either assumption — multiple mutually-untrusting callers, or transcripts leaving the trust boundary they were produced in — supply the missing control at the network layer. ClawBridge will not do it for you.
 
@@ -216,7 +226,8 @@ curl -H "Authorization: Bearer $BRIDGE_TOKEN" \
 | `PYTHON_BIN` | No | Path to Python 3 binary (auto-detected) |
 | `PROJECTS_DIR` | No | Directory containing projects the bridge may operate on (default: `$HOME/projects`). Sessions run here, and it scopes `/projects/*` and `/v2/session/file`. |
 | `EXPORTS_DIR` | No | Directory served by `GET /exports` and `GET /exports/*` (default: `$HOME/exports`). **These two routes are unauthenticated by design** — the listing exposes every filename and the download serves every file. Point it at a directory you are content to publish to anyone who can reach the port. |
-| `CLAWBRIDGE_ALLOW_UNAUTHENTICATED` | No | Set to exactly `true` to start without `BRIDGE_TOKEN`, serving every route unauthenticated. Only where nothing else can reach the port **and no browser runs on the host** — CORS is wildcard, so a visited page can call the API cross-origin (see [Security Posture](#security-posture)). Any other value — including `1`, `yes`, or `TRUE` — is not accepted. |
+| `CLAWBRIDGE_ALLOW_UNAUTHENTICATED` | No | Set to exactly `true` to start without `BRIDGE_TOKEN`, serving every route unauthenticated. Only where nothing else can reach the port (see [Security Posture](#security-posture)). Any other value — including `1`, `yes`, or `TRUE` — is not accepted. |
+| `CLAWBRIDGE_ALLOWED_ORIGINS` | No | Comma-separated browser origins permitted to call the bridge **while it runs without a token**; loopback is always permitted. Entries must be serialized origins (`https://ui.example` — no trailing slash, no path); anything else never matches, and is warned about at boot and listed under `cors.invalidOrigins` on `/health` rather than being silently ignored. Unset permits nothing beyond loopback. Ignored when `BRIDGE_TOKEN` is set. |
 | `CLAWBRIDGE_TOOLS_MODULE` | No | Absolute path to a Node module implementing the [tools extension interface](docs/tools-extension.md). When set, the bridge mounts the module under `/tools/*` and merges its health into `/health`. Absent, the bridge runs as a pure PTY broker. |
 
 ### Claude Code Headless Auth
@@ -395,7 +406,7 @@ Set `CLAWBRIDGE_TOOLS_MODULE` to the absolute path of a Node module that exports
 ## Testing
 
 ```bash
-# Run all tests (612 across 24 files; 598 executed, 14 e2e skipped by default)
+# Run all tests (the 14 live-PTY e2e tests are skipped unless RUN_E2E=1)
 npm test
 
 # Run with live E2E (requires Claude Code installed)
@@ -423,7 +434,7 @@ ClawBridge/
       event-log.js         # Append-only event log with cursor reads and long-poll
       sessions.js          # Session + SessionManager: lifecycle, timers, permissions
       routes.js            # HTTP route handlers (includes api-docs, peek, test detection)
-      __tests__/           # 18 test files, 512 tests (14 e2e skipped by default)
+      __tests__/           # broker suites (the 14-test live-PTY e2e file is skipped unless RUN_E2E=1)
   docs/
     bridge-v2-maintainer-guide.md
     bridge-v2-pty-broker-spec.md
@@ -437,7 +448,7 @@ ClawBridge/
 |----------|---------|
 | [Maintainer Guide](docs/bridge-v2-maintainer-guide.md) | Architecture, data flow, known fragility, operational reference |
 | [PTY Broker Spec](docs/bridge-v2-pty-broker-spec.md) | Design spec for the permission broker |
-| [Bug Index](docs/bridge-v2-bug-index.md) | All 13 known bugs with regression test mappings |
+| [Bug Index](docs/bridge-v2-bug-index.md) | Every numbered v2 broker bug, mapped to the regression test that guards it |
 | [Regression Checklist](docs/bridge-v2-regression-checklist.md) | What to verify after any change |
 
 ## Related Projects

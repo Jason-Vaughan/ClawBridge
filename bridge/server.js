@@ -54,6 +54,45 @@ const TOKEN = process.env.BRIDGE_TOKEN || '';
 // easy to enable absent-mindedly, and this one should read as a decision in a
 // deployment audit.
 const ALLOW_UNAUTHENTICATED = process.env.CLAWBRIDGE_ALLOW_UNAUTHENTICATED === 'true';
+
+// Origins a browser may drive this bridge from while it runs without a token.
+//
+// Absence resolves to the narrowest set, never to a wildcard: an unset variable
+// is a question, not permission. Loopback stays allowed because a page cannot
+// hold a loopback origin unless something is already executing on this host, so
+// it adds no reachability an attacker did not already have; anything else must
+// be named exactly, which reads as a decision in a deployment audit.
+const ALLOWED_ORIGINS = new Set(
+  (process.env.CLAWBRIDGE_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean),
+);
+
+// Entries that are not serialized origins, and so can never match an Origin
+// header no matter what a browser sends. A trailing slash or a bare hostname
+// both look right and both silently do nothing.
+//
+// Split out at boot rather than checked per request, because both the startup
+// warning and /health have to report the same set: a configured-but-inert entry
+// listed on /health as though it were active tells a remote operator the
+// opposite of the truth, and /health is the surface they can actually reach.
+const MALFORMED_ALLOWED_ORIGINS = [...ALLOWED_ORIGINS].filter((candidate) => {
+  try {
+    return new URL(candidate).origin !== candidate;
+  } catch {
+    return true;
+  }
+});
+// The set the gate actually consults. It must be this one and not ALLOWED_ORIGINS:
+// `null` is a real Origin header value (sandboxed iframe, file:// page) and also
+// fails to parse as a URL, so it lands in MALFORMED and is reported inert on
+// /health — while a raw Set lookup would still honour it. Matching against
+// anything reported inert would make the gate and its own health report disagree
+// about who is allowed in.
+const EFFECTIVE_ALLOWED_ORIGINS = [...ALLOWED_ORIGINS]
+  .filter(o => !MALFORMED_ALLOWED_ORIGINS.includes(o));
+const EFFECTIVE_ALLOWED_ORIGIN_SET = new Set(EFFECTIVE_ALLOWED_ORIGINS);
 const HOME = process.env.HOME || '';
 const PROJECTS_DIR = process.env.PROJECTS_DIR || path.join(HOME, 'projects');
 const PRAWDUCT_DIR = path.join(HOME, 'prawduct');
@@ -379,6 +418,48 @@ function json(res, status, data) {
 }
 
 /**
+ * Whether an Origin header value names this host's loopback interface.
+ *
+ * Parsed rather than prefix-matched: `http://127.0.0.1.evil.example` starts with
+ * a loopback-looking string and is a remote origin. Serialized origins that do
+ * not parse — notably the literal `null` a sandboxed iframe or a file:// page
+ * sends — are not loopback, so they fall through to the deny path.
+ *
+ * Both http and https count. What makes loopback safe to allow is that a page
+ * cannot hold a loopback origin unless something already executes on this host,
+ * and that is equally true of a local dev server holding a certificate; the
+ * scheme is not what carries the argument. `[::1]` is the only IPv6 spelling
+ * checked because WHATWG URL always returns it bracketed.
+ *
+ * @param {string} origin — an Origin header value.
+ * @returns {boolean}
+ */
+function isLoopbackOrigin(origin) {
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  const host = parsed.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
+/**
+ * Whether a browser at `origin` may drive this bridge.
+ *
+ * Only consulted while running without a token; with one, a cross-origin page
+ * holds no credential and the pre-existing wildcard stays.
+ *
+ * @param {string} origin — an Origin header value.
+ * @returns {boolean}
+ */
+function isOriginAllowed(origin) {
+  return EFFECTIVE_ALLOWED_ORIGIN_SET.has(origin) || isLoopbackOrigin(origin);
+}
+
+/**
  * Validate bearer token.
  * @param {http.IncomingMessage} req
  * @returns {boolean}
@@ -634,17 +715,87 @@ const server = http.createServer(async (req, res) => {
   const method = req.method;
   const pathname = url.pathname;
 
-  // CORS for container access. Wildcard origin, and the preflight below allows
-  // POST with an Authorization header — so any web page the operator visits can
-  // make cross-origin calls to this bridge on localhost. With a token that is
-  // merely a nuisance (the page has no credential). Under
-  // CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true it is not: a visited page can
-  // POST /v2/session/start and spawn an agent with shell access to the host.
+  // CORS, and — while running without a token — an origin gate in front of every
+  // route.
   //
-  // This is why the escape hatch's precondition is stated as "no browser on this
-  // host" rather than "unreachable from the network" — see README Security
-  // Posture. Narrowing the origin when running open is filed as CRS-4T8K.
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // The gate is not the CORS header. CORS governs whether a page may *read* a
+  // response; it does not stop the request from being delivered and acted on. A
+  // POST carrying `Content-Type: text/plain` is a CORS-safelisted "simple
+  // request": no preflight, the browser sends it, and parseBody parses it
+  // regardless of the declared type. A bare cross-origin GET is easier still, and
+  // GET /v2/session/file?consume=true unlinks the file it returns. So a page the
+  // operator merely visited could spawn agents and delete files on this host,
+  // with the response it could not read being no consolation. Narrowing the
+  // header alone would have left every one of those paths open.
+  //
+  // Hence: refuse the request outright, before routing, rather than decorating
+  // the response. The gate keys on the *presence* of Origin, which browsers set
+  // and page script cannot forge — non-browser callers (curl, containers, the
+  // packaged client) send none and are unaffected.
+  //
+  // It guards every method, not just the state-changing ones, because that
+  // consume-on-read route is a GET; classifying routes by method would have let
+  // it through and would re-open the question with every new route.
+  //
+  // Scope: token set → nothing here changes, since a cross-origin page holds no
+  // credential and cannot attach Authorization without tripping a preflight.
+  // Two signals, because Origin alone does not see the easiest attack. Browsers
+  // append Origin only when the request mode is CORS or the method is not
+  // GET/HEAD (Fetch, "append a request `Origin` header"). A no-cors GET — an
+  // <img src>, a <script src>, an <iframe>, a top-level navigation — carries no
+  // Origin at all, so keying solely on Origin would wave through the very
+  // request this gate exists to stop, the one that needs no preflight and no
+  // script. Sec-Fetch-Site is what covers that case: browsers send it on those
+  // loads, and no non-browser client sends it.
+  //
+  // Order matters. Origin is the more precise signal, so when it is present it
+  // decides alone — otherwise a dev UI on http://localhost:5173 calling this
+  // bridge on another loopback port would be refused for reporting
+  // Sec-Fetch-Site: same-site, which is exactly what a different port on the
+  // same site is.
+  const origin = req.headers['origin'];
+  const fetchSite = req.headers['sec-fetch-site'];
+
+  let refusal = null;
+  if (!TOKEN) {
+    if (origin !== undefined) {
+      if (!isOriginAllowed(origin)) refusal = 'Origin not allowed';
+    } else if (fetchSite !== undefined && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+      // 'none' is a user-initiated load (typed URL, bookmark); 'same-origin' is
+      // this bridge's own page. Anything else was initiated by another site.
+      refusal = 'Cross-site request not allowed';
+    }
+  }
+
+  if (TOKEN) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else {
+    // Every tokenless response now depends on the request's Origin — the echoed
+    // header, its absence, and the refusal below all differ by origin. Vary must
+    // therefore be set on all three, not just the success path, or an
+    // intermediary may serve one origin's refusal to another origin.
+    res.setHeader('Vary', 'Origin, Sec-Fetch-Site');
+    if (origin !== undefined && refusal === null) {
+      // Echo rather than wildcard: the allowed set is now specific, and the
+      // reply has to name which member it was answering.
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+  }
+
+  if (refusal !== null) {
+    // Ahead of the OPTIONS reply below, so a refused origin's preflight fails
+    // too, and ahead of the unauthenticated /exports handlers further down.
+    //
+    // Logged for the same reason 401s are, and the reason is stronger here: a
+    // refusal is either someone probing, or the operator's own UI being turned
+    // away by an allowlist entry that is *well-formed but wrong* — a right host
+    // on the wrong port raises no boot warning and shows on /health as active,
+    // so this line is the only thing that names the origin actually presented.
+    console.warn(`[bridge] 403 ${method} ${pathname} origin=${origin ?? '(none)'} `
+      + `sec-fetch-site=${fetchSite ?? '(none)'} from ${req.socket?.remoteAddress ?? 'unknown'}`);
+    return json(res, 403, { error: refusal });
+  }
+
   if (method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -831,6 +982,32 @@ const server = http.createServer(async (req, res) => {
         payload.auth.warning =
           'No BRIDGE_TOKEN is set. Every route is served without authentication, '
           + 'enabled by CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true.';
+
+        // The origin gate is the only thing standing between a visited web page
+        // and this bridge while it runs open, and a control nobody can observe
+        // is a control that regresses unnoticed. Report it where a remote
+        // operator already looks: an allowlist widened months ago is exactly
+        // what nobody remembers, and `additionalOrigins` is what makes it
+        // answerable without shell access to the host.
+        payload.cors = {
+          mode: 'gated',
+          loopbackAllowed: true,
+          additionalOrigins: EFFECTIVE_ALLOWED_ORIGINS,
+        };
+        // Reported separately rather than folded in: an entry that is configured
+        // but inert is the one an operator most needs told about, and listing it
+        // as allowed would answer their question wrongly.
+        if (MALFORMED_ALLOWED_ORIGINS.length) {
+          payload.cors.invalidOrigins = MALFORMED_ALLOWED_ORIGINS;
+          payload.cors.warning =
+            'CLAWBRIDGE_ALLOWED_ORIGINS contains entries that are not serialized origins '
+            + '(a trailing slash or path is the usual cause). They never match.';
+        }
+      } else {
+        // Reported in both modes on purpose. "The key is absent" and "the key is
+        // present and says wildcard" are different facts, and only one of them
+        // survives an operator asking whether this bridge is gated.
+        payload.cors = { mode: 'wildcard', reason: 'a token is required, so no origin check is applied' };
       }
 
       if (toolsExtension) {
@@ -986,9 +1163,10 @@ async function startServer() {
     console.error('    openssl rand -base64 32');
     console.error('  (This is NOT the same as CLAUDE_CODE_OAUTH_TOKEN, which comes from');
     console.error('   `claude setup-token`.)');
-    console.error('  Override — only if nothing else can reach this port AND no browser runs');
-    console.error('  on this host (CORS is wildcard, so a visited page could call the API):');
+    console.error('  Override — only if nothing else can reach this port:');
     console.error('    CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true');
+    console.error('  Cross-origin browser requests are refused in that mode, so a visited');
+    console.error('  page cannot call the API. Set CLAWBRIDGE_ALLOWED_ORIGINS to permit one.');
     process.exit(1);
   }
 
@@ -1012,6 +1190,21 @@ async function startServer() {
       console.warn(`  Auth: *** UNAUTHENTICATED *** — every route is open to anyone who can`);
       console.warn(`        reach 0.0.0.0:${PORT}, including session start. Enabled by`);
       console.warn(`        CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true. Unset it to require a token.`);
+      console.log(`  CORS: cross-origin browser requests refused${EFFECTIVE_ALLOWED_ORIGINS.length ? '' : ' except from loopback'}`);
+      if (EFFECTIVE_ALLOWED_ORIGINS.length) {
+        console.log(`        also allowed: ${EFFECTIVE_ALLOWED_ORIGINS.join(', ')}`);
+      }
+      // A typo here fails closed, which is the right direction but a silent one:
+      // the operator sees a refused browser and no reason for it. Name it at
+      // boot rather than leaving it to be debugged live.
+      for (const candidate of MALFORMED_ALLOWED_ORIGINS) {
+        let suggestion = null;
+        try {
+          suggestion = new URL(candidate).origin;
+        } catch { /* unparseable — no suggestion to offer */ }
+        console.warn(`        WARNING: CLAWBRIDGE_ALLOWED_ORIGINS entry ${JSON.stringify(candidate)} is not a`);
+        console.warn(`        serialized origin and will never match${suggestion ? `; did you mean ${suggestion}?` : '.'}`);
+      }
     }
     console.log(`  v2 PTY broker: enabled`);
     if (toolsExtension) console.log(`  Tools extension: ${TOOLS_MODULE_PATH}`);

@@ -466,10 +466,31 @@ async function handleV2Route({ method, pathname, url, req, res, parseBody, json,
   // No active session is required — the path is resolved against the
   // project's working directory (`<projectsDir>/<project>`), so a controller
   // can read a file after the session has ended too.
-  if (method === 'GET' && pathname === '/v2/session/file') {
+  if ((method === 'GET' || method === 'POST') && pathname === '/v2/session/file') {
     const project = url.searchParams.get('project');
     const relPath = url.searchParams.get('path');
-    const consume = url.searchParams.get('consume') === 'true';
+    const consumeRequested = url.searchParams.get('consume') === 'true';
+
+    // Consuming is POST-only. GET is a safe method (RFC 9110 §9.2.1) and every
+    // piece of infrastructure that follows a URL relies on that: link unfurlers,
+    // browser prefetch, proxies, scanners and crawlers all issue bare GETs, none
+    // of them send Origin or Sec-Fetch-Site, and none of them are a browser being
+    // driven by a hostile page — so the origin gate in server.js cannot see any
+    // of them. While this deleted on GET, anything that ever saw the URL (a log,
+    // a chat message, a bookmark, a bug report) could destroy the file by merely
+    // looking at it.
+    //
+    // Refused rather than downgraded to a plain read: a caller that asked to
+    // consume and got 200 would believe the file was gone. It would still be
+    // there, and the duplicate capture would surface much later, somewhere else.
+    if (method === 'GET' && consumeRequested) {
+      res.setHeader('Allow', 'POST');
+      json(res, 405, {
+        error: 'consume=true requires POST /v2/session/file — GET must not have side effects',
+      });
+      return true;
+    }
+    const consume = method === 'POST' && consumeRequested;
 
     if (!project) {
       json(res, 400, { error: 'project is required' });
@@ -748,7 +769,18 @@ function getApiDocs() {
       {
         method: 'GET',
         path: '/v2/session/file',
-        description: 'Read a project-relative file the AI wrote inside its working directory, returning raw UTF-8 bytes verbatim. Designed for structured capture-back (e.g. wrap summaries written as raw markdown) — sidesteps the /v2/session/output paint stream\'s markdown stripping and newline collapse. No active session required; the file is resolved against `<projectsDir>/<project>`. Closes ClawBridge#18.',
+        description: 'Read a project-relative file the AI wrote inside its working directory, returning raw UTF-8 bytes verbatim. Designed for structured capture-back (e.g. wrap summaries written as raw markdown) — sidesteps the /v2/session/output paint stream\'s markdown stripping and newline collapse. No active session required; the file is resolved against `<projectsDir>/<project>`. Closes ClawBridge#18. This method never has a side effect; use POST to consume.',
+        query: {
+          project: { type: 'string', required: true, description: 'Project name (same key used by the rest of v2).' },
+          path: { type: 'string', required: true, description: 'Project-relative path. Rejected if absolute, traversing (`..`), or escaping the project root via a symlink.' },
+          consume: { type: 'string', required: false, description: 'Not accepted on GET — "true" returns 405 with `Allow: POST`. GET is a safe method, so anything that follows a URL (link unfurlers, prefetchers, proxies, crawlers) would otherwise delete the file by merely reading it. Use POST.' },
+        },
+        returns: 'ok, project, path, bytes (file size in bytes), content (raw UTF-8 string), consumed (always false on GET).',
+      },
+      {
+        method: 'POST',
+        path: '/v2/session/file',
+        description: 'Same read as GET, plus the consuming form. BREAKING in 2.0.0: consume-on-read moved here from GET, because a destructive operation must not answer a safe method. No request body; parameters are query params as on GET.',
         query: {
           project: { type: 'string', required: true, description: 'Project name (same key used by the rest of v2).' },
           path: { type: 'string', required: true, description: 'Project-relative path. Rejected if absolute, traversing (`..`), or escaping the project root via a symlink.' },

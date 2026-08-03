@@ -730,8 +730,12 @@ design_decisions:
       API-T5ST; born steady-state with zero violations to migrate (a sweep of
       CHANGELOG.md 1.5.0-1.9.1 found no Removed, no Deprecated, no breaking
       marker). Canonical text: .prawduct/artifacts/api-contract.md, section
-      Direction. Note the startup change in [Unreleased] is a deliberate,
-      recorded departure — see the build plan's Governing norms.
+      Direction. Three departures are recorded there, all in 2.0.0 and all
+      security fixes: the BRIDGE_TOKEN startup requirement, the cross-origin
+      gate (CRS-4T8K), and moving consuming reads to POST (SEC-K4RD). The
+      artifact — not a build plan — is the durable home, because plans are
+      retired at merge; api-contract.md also pre-commits that a fourth
+      departure means the norm needs amending rather than departing from again.
     stability_tiers: >-
       Implicit rather than declared: /v2/* and the tools-extension module
       interface behave as stable contracts; docs/tools-extension.md names its own
@@ -1020,7 +1024,7 @@ build_state:
 # governance sees NO active plan — the session briefing warns loudly until
 # it's fixed (STH-5P2W).
 #
-# active_build_plan: artifacts/build-plan-my-scope.md
+# active_build_plan: (none — cors-origin and safe-get retired with the v2.0.0 PR)
 
 # =============================================================================
 # BUILD-PLAN REF ROOT (opt-in, unset by default)
@@ -1103,7 +1107,16 @@ views_enabled: true
 # Scope rollups — derived view, populated by regen-views when views_enabled is
 # true. Lists chunks (and releases) shipped under each scope rollup tag.
 # Do not hand-edit — overwritten on next regen.
-scope_rollups: {}
+scope_rollups:
+  cors-origin:
+    chunks: ["01", "02"]
+    releases: ["v2.0.0"]
+  pkg-hygiene:
+    chunks: ["01"]
+    releases: ["v2.0.1"]
+  safe-get:
+    chunks: ["01"]
+    releases: ["v2.0.0"]
 
 # =============================================================================
 # COVERAGE EVIDENCE (opt-in, v1.4+)
@@ -1156,7 +1169,8 @@ coverage_required: false
 # Declared because the defaults do not fit this repo: the hook would otherwise
 # run `python -m pytest` and grep a `tests/` directory, neither of which exists
 # here. Verified 2026-08-02 — this exact invocation produced a parseable JUnit
-# report for all 565 tests across 22 files, 0 failures.
+# report for the whole suite, 0 failures (565 tests across 22 files at that
+# date; the claim being recorded is that the invocation parses, not the count).
 test_command: npx vitest run --reporter=junit --outputFile={junit_xml}
 
 # Two trees: bridge/__tests__ covers the server, prawduct argv, project files
@@ -1221,7 +1235,7 @@ api_versioning_decided: uri-path-v2-plus-npm-semver; deprecation policy ratified
 backlog_format_version: 2
 # backlog_prefixes: []
 # backlog_external_imports: []
-# backlog_last_groomed_at:
+backlog_last_groomed_at: 2026-08-03
 
 # =============================================================================
 # CHANGE LOG

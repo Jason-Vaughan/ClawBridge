@@ -14,6 +14,21 @@ documenting it, or write the finding at **severity-without-reproduction** level 
 of defect, how bad, where it is tracked) and keep file:line refs and the exploitable
 mechanism in a local note until the fix ships.
 
+**The rule attaches to writing the mechanism down, not to the release checklist.** Added
+2026-08-03 after breaking this rule *one commit after deliberately applying it*. The release
+sequence was reordered on purpose — `npm publish` before `git push`, so the fix for the 1.9.1
+defects was available before their recipes went public — and then, minutes later, a newly-found
+defect (`CRS-8N3P`, unfixed in both published versions) was written into `.prawduct/backlog.md`
+with file:line refs and its mechanism, and pushed to the same public repo.
+
+The rule was salient while making a big, obviously-security-shaped decision, and invisible
+during a routine backlog write. So the trigger cannot be "when releasing" — it has to be **at
+the moment you type a mechanism or a file:line for a defect that is not yet fixed in what
+users can install**, whatever file you are typing it into. Backlog entries, plan bodies and
+review findings all reach the public repo the same way source does. Ask: *is this fixed in
+what npm serves right now?* If not, severity-without-reproduction, and the mechanism goes in a
+local note.
+
 **And: branch deletion is not redaction.** Deleting a remote branch removes the ref, not
 the objects. Commits stay fetchable by SHA on GitHub until a server-side GC you cannot
 trigger and that has no published schedule. Once pushed, no git operation available to you
@@ -83,11 +98,37 @@ is not a "remember to be thorough" rule — it is a rule about *where the check 
 1. **Falsify, don't confirm.** Whenever you claim a guard exists, break the thing it guards
    and watch the check go red. A test that has never failed has never been tested. This is
    one command and it is the highest-yield habit on this list.
+
+   **But falsifying a too-narrow check only proves the check is narrow.** On 2026-08-03 a
+   test was written for the `.env.example` sample, watched to fail, watched to pass — and
+   the identical defect shipped in the README's env block, because the test pinned the file
+   in mind rather than the property. So after the red-green step, ask the second question:
+   *does the scope of what I just falsified match the scope of what I am about to claim?*
+   If the claim is "no documented sample hands out a token" then the check enumerates the
+   samples; if it is "this file is clean" then say only that. The fix is usually to
+   enumerate rather than to name — and to add a meta-assertion that the enumeration found
+   something, so a changed filename or fence tag cannot leave it green while checking
+   nothing.
 2. **Check the sentence you are about to write, not the action you took.** "The branch is
    deleted" and "the content is unreachable" are different claims needing different probes.
    Take the literal words of the report and ask what would falsify *them*.
 3. **After finding one instance, grep for the shape before declaring the class closed.** A
    reproduction that reproduces feels like completeness. It is evidence about one path.
+4. **Enumeration has an axis, and aiming it wrong feels identical to aiming it right.** Added
+   2026-08-03 after three instances in a single work cycle. Building the cross-origin gate I
+   enumerated *routes* and checked each was still reachable — a real enumeration, non-empty
+   meta-assertion, properly falsified, six tests red on demand. Worthless: the defect lived on
+   **request shape**, and every one of those six sent an `Origin` header. The shape that
+   mattered was the no-cors `GET` (`<img src>`), which sends none, and which was the easiest
+   attack in the threat model the change was named for. Later the same cycle, the
+   malformed-allowlist check enumerated one spelling — a trailing slash — that no browser can
+   send, and so missed `null`, which browsers really do send; that entry was reported to
+   operators as inert while the gate honored it.
+
+   So after "did I enumerate?" ask **"over what?"** — and take the axis from the *claim*, not
+   from the code in front of you. "No cross-origin browser request can reach a handler" ranges
+   over the ways a browser can issue a request, not over which routes exist. If the axis can't
+   be named in one phrase, the claim is still too vague to test.
 
 **How this was learned:** four times in the 2026-08-02 session, an independent reviewer
 caught the same failure — the specific thing done and reported as the general thing.

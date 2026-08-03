@@ -35,22 +35,39 @@ afterEach(() => {
  * @returns {{ run: Function, captured: Function }}
  */
 function mockGet(query) {
+  return mockRequest('GET', query);
+}
+
+/**
+ * Mock handler invocation for /v2/session/file at an arbitrary method.
+ *
+ * `res` carries a real `setHeader` rather than being `{}`: the handler sets
+ * `Allow` alongside its 405, and a bare object would throw there — which would
+ * make the harness, not the route, decide what the route may do.
+ *
+ * @param {string} method - HTTP method
+ * @param {Record<string, string>} query - querystring params
+ * @returns {{ run: Function, captured: Function, headers: Function }}
+ */
+function mockRequest(method, query) {
   const search = new URLSearchParams(query).toString();
   const pathname = '/v2/session/file';
   let captured = null;
+  const headers = {};
   return {
     run: () =>
       handleV2Route({
-        method: 'GET',
+        method,
         pathname,
         url: new URL(`http://localhost${pathname}?${search}`),
         req: {},
-        res: {},
+        res: { setHeader: (k, v) => { headers[k] = v; } },
         parseBody: async () => ({}),
         json: (_res, status, body) => { captured = { status, body }; },
         sessionManager: manager,
       }),
     captured: () => captured,
+    headers: () => headers,
   };
 }
 
@@ -92,17 +109,18 @@ describe('GET /v2/session/file', () => {
   });
 
   // Test 2 (from issue): consume=true unlinks; second read → 404.
+  // Moved to POST in 2.0.0 — see the G7 block below for why the method changed.
   it('consume=true returns content then unlinks the file', async () => {
     const file = seed('cap.md', '## Heading\nbody\n');
 
-    const m1 = mockGet({ project: PROJECT, path: 'cap.md', consume: 'true' });
+    const m1 = mockRequest('POST', { project: PROJECT, path: 'cap.md', consume: 'true' });
     await m1.run();
     expect(m1.captured().status).toBe(200);
     expect(m1.captured().body.consumed).toBe(true);
     expect(m1.captured().body.content).toBe('## Heading\nbody\n');
     expect(fs.existsSync(file)).toBe(false);
 
-    const m2 = mockGet({ project: PROJECT, path: 'cap.md', consume: 'true' });
+    const m2 = mockRequest('POST', { project: PROJECT, path: 'cap.md', consume: 'true' });
     await m2.run();
     expect(m2.captured().status).toBe(404);
   });
@@ -118,7 +136,7 @@ describe('GET /v2/session/file', () => {
     fs.chmodSync(dirAbs, 0o555);
 
     try {
-      const m = mockGet({ project: PROJECT, path: 'ro-parent/cap.md', consume: 'true' });
+      const m = mockRequest('POST', { project: PROJECT, path: 'ro-parent/cap.md', consume: 'true' });
       await m.run();
       const { status, body } = m.captured();
       expect(status).toBe(200);
@@ -245,6 +263,81 @@ describe('GET /v2/session/file', () => {
     const m2 = mockGet({ project: PROJECT, path: 'keep.md' }); // omitted
     await m2.run();
     expect(m2.captured().body.consumed).toBe(false);
+    expect(fs.existsSync(file)).toBe(true);
+  });
+});
+
+/**
+ * Guards for security-model.md § Known gaps G7 (`SEC-K4RD`): a destructive
+ * operation must not answer a safe method.
+ *
+ * Enumerated over request *shape* rather than over routes, because that is the
+ * axis this defect lives on — the motivating caller is not a browser at all but
+ * anything that follows a URL, which is why the origin gate in server.js cannot
+ * cover it.
+ */
+describe('GET /v2/session/file must not have side effects (G7)', () => {
+  it('refuses consume=true on GET and leaves the file in place', async () => {
+    // The prefetcher / link-unfurler case, and the whole reason for the change.
+    // Asserting the status alone would pass against a handler that unlinked and
+    // *then* refused, so the surviving file is the real assertion.
+    const file = seed('cap.md', 'must survive a GET\n');
+
+    const m = mockGet({ project: PROJECT, path: 'cap.md', consume: 'true' });
+    await m.run();
+
+    expect(m.captured().status).toBe(405);
+    expect(fs.existsSync(file)).toBe(true);
+  });
+
+  it('names the method to use, so the refusal is actionable', async () => {
+    // A 405 without Allow tells a caller it is wrong but not what to do; the
+    // migration hint belongs in the response, not only in the changelog.
+    seed('cap.md', 'x\n');
+
+    const m = mockGet({ project: PROJECT, path: 'cap.md', consume: 'true' });
+    await m.run();
+
+    expect(m.headers()['Allow']).toBe('POST');
+    expect(m.captured().body.error).toMatch(/POST/);
+  });
+
+  it('refuses rather than quietly downgrading to a plain read', async () => {
+    // The tempting alternative was to ignore consume on GET and return 200.
+    // That hands the caller a file it believes it consumed; the duplicate
+    // capture then surfaces much later, somewhere else. So: no content on a
+    // refused consume.
+    seed('cap.md', 'contents\n');
+
+    const m = mockGet({ project: PROJECT, path: 'cap.md', consume: 'true' });
+    await m.run();
+
+    expect(m.captured().status).not.toBe(200);
+    expect(m.captured().body.content).toBeUndefined();
+  });
+
+  it('leaves the plain read untouched', async () => {
+    // The compatibility half: only the consuming form moved. Without this, a
+    // handler that refused every GET would look identical to a correct one.
+    const file = seed('cap.md', 'read me\n');
+
+    const m = mockGet({ project: PROJECT, path: 'cap.md' });
+    await m.run();
+
+    expect(m.captured().status).toBe(200);
+    expect(m.captured().body.content).toBe('read me\n');
+    expect(m.captured().body.consumed).toBe(false);
+    expect(fs.existsSync(file)).toBe(true);
+  });
+
+  it('still reads on POST without consume, so the method is not a consume switch', async () => {
+    const file = seed('cap.md', 'plain post\n');
+
+    const m = mockRequest('POST', { project: PROJECT, path: 'cap.md' });
+    await m.run();
+
+    expect(m.captured().status).toBe(200);
+    expect(m.captured().body.consumed).toBe(false);
     expect(fs.existsSync(file)).toBe(true);
   });
 });

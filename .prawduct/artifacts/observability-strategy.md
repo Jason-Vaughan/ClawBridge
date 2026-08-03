@@ -37,18 +37,31 @@ otherwise look identical:
 | Field | Answers |
 |---|---|
 | `claude` | Is Claude Code present, and which version? |
-| `bridge` | **Which build am I actually running?** (1.9.1 — a semver-ranged host had no way to verify a deploy landed) |
+| `bridge` | **Which build am I actually running?** (added because a semver-ranged host had no way to verify a deploy landed) |
 | `ptyAvailable` | Did the native binding load? |
 | `ptySpawnable` | Can it *actually spawn*? Helper present **and** executable, re-checked per request |
 | `ptyMode` | `pty` or the useless-but-alive `pipes-fallback` |
-| `v2ActiveSessions` | Is anything in flight? |
+| `activeSessions` | Is anything in flight? |
 | `auth.required` | Is authentication being enforced at all? |
 | `insecure` | Present and `true` **only** when the bridge is serving every route unauthenticated. This is the field to alert on — `ok` stays `true` because the broker is in fact serving |
 | `tools` | Extension health, or `{ ok: false, error }` — and never flips the root `ok` |
+| `cors.mode` | Is this bridge gating cross-origin browser requests, or serving wildcard? Reported in **both** modes, so the answer never has to be inferred from an absent key |
+| `cors.additionalOrigins` | Which non-loopback origins can drive a tokenless bridge — the thing an operator who widened the allowlist months ago will not remember. Lists only origins the gate will actually honour |
+| `cors.invalidOrigins` | Configured entries that are not serialized origins and therefore never match. Separate from the list above on purpose: reporting an inert entry as active answers the operator's question with the opposite of the truth |
 
 `auth` and `insecure` were added with the `SEC-UTP4` fix, for the same reason `ptySpawnable`
 was added after #16: the payload could not distinguish a healthy bridge from one with its
-front door open, so an operator reading `/health` was told "fine" either way.
+front door open, so an operator reading `/health` was told "fine" either way. `cors` was added
+with `CRS-4T8K` under the same rule — the origin gate is the only thing standing between a
+visited web page and a tokenless bridge, and a control nobody can observe is one that
+regresses unnoticed.
+
+**Refusals are logged, not only counted.** `[bridge] 403 <method> <path> origin=… sec-fetch-site=…`
+mirrors the existing `[bridge] 401` line. It exists because the failure this gate produces is
+ambiguous from `/health` alone: a *well-formed but wrong* allowlist entry (right host, wrong
+port) is not malformed, so it raises no boot warning and shows as active — the log line is the
+only place the origin actually presented can be seen. There is no alerting; these lines are the
+signal.
 
 Console output (stderr for warnings, stdout otherwise) carries what `/health` cannot: **rejected authentication attempts**
 (`[bridge] 401 <method> <path> from <peer>`, added 2026-08-02) — the only signal that

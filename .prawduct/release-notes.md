@@ -4,3 +4,41 @@
      .prawduct/change-log.md `release=` tags. Do not hand-edit — edits will
      be overwritten on next regen. See change-log.md for full per-release
      bodies; this file is a digest. -->
+
+## v2.0.1
+
+**Entry:** 2026-08-03: Stop publishing session transcripts, which were also being served
+
+**Chunks shipped:** 01
+
+**Scope:** pkg-hygiene
+
+See `.prawduct/change-log.md` for full details.
+
+## v2.0.0
+
+### safe-get
+
+**Entry:** 2026-08-03: Stop a destructive operation from answering GET
+
+**Chunks shipped:** 01
+
+### cors-origin
+
+**Entry:** 2026-08-03: Gate cross-origin requests when the bridge runs without a token
+
+**Chunks shipped:** 01, 02
+
+### 2026-08-03: Close the documented install path around the auth guard
+
+**Entry:** 2026-08-03: Close the documented install path around the auth guard
+
+**Chunks shipped:** 01
+
+### 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
+
+**Entry:** 2026-08-02: Close two unauthenticated remote-kill paths and the fail-open auth default
+
+**Chunks shipped:** 01, 02
+
+See `.prawduct/change-log.md` for full details.

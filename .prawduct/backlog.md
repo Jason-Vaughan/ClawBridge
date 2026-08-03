@@ -79,9 +79,10 @@
 
      RESOLVED as of 2026-08-02: SEC-UTP4 and EXP-9WQ2 both shipped, so the
      writeups now document closed bugs and the disclosure objection is gone.
-     The cutover is unblocked and simply has not been run — the remaining
-     precondition is that the fixes are released, not merely merged, since npm
-     still serves 1.9.1.
+     The cutover is unblocked and simply has not been run. Its remaining
+     precondition — that the fixes be *released*, not merely merged — was met
+     2026-08-03 when `@jason-vaughan/clawbridge@2.0.0` was published and
+     `dist-tags.latest` moved off 1.9.1 (see `REL-BRS7`).
 
      Nothing has been created on GitHub. `backlog_service_repo` stays unset, so
      this file remains the live backlog until the cutover runs. -->
@@ -91,33 +92,73 @@
      Prawduct onboarding. They are findings from reading the repo against its own
      docs — none were introduced by the onboarding itself. -->
 
-- **[CRS-4T8K]** Wildcard CORS makes the unauthenticated escape hatch unsafe on any host with a browser
-  `effort: S · impact: M · area: security · source: critic · added: 2026-08-02 · status: open · stage: design`
+- **[REL-BRS7]** Ship v2.0.0 and get habitat off the vulnerable 1.9.1
+  `effort: S · impact: L · area: release · source: user · added: 2026-08-03 · status: open · stage: ready · reviewed: 2026-08-03`
 
-  `bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and
-  the preflight allows `POST` with an `Authorization` header. With `BRIDGE_TOKEN`
-  set this is a nuisance rather than a hole — a random page has no credential to
-  send. **Under `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` it is a hole**: any page
-  the operator visits can cross-origin `POST /v2/session/start` against
-  `localhost` and spawn an agent with shell access to the host.
+  **High priority. npm is PUBLISHED; the remaining steps are the ones that
+  actually reach habitat.**
 
-  Raised three times by Critic before being acted on, because each pass I treated
-  it as a security-behavior decision belonging to the owner and therefore not
-  mine to touch. That was half right: changing the header is the owner's, but the
-  *precondition I had written into the startup warning and the README* — "only if
-  this port is genuinely unreachable by anyone else" — was mine, and it was
-  unsatisfiable as stated. Documented now in both places plus a comment at the
-  header, so an operator can at least evaluate the risk.
+  `main` has all the code. `release/2.0.0` (`e49fe37`, pushed) has the prep:
+  version 2.0.0, CHANGELOG promoted, `release=v2.0.0` tags, release notes
+  regenerated. **`@jason-vaughan/clawbridge@2.0.0` was published to npm
+  2026-08-03T19:29Z and `dist-tags.latest` is `2.0.0`.**
 
-  **Remaining decision (the reason this stays open):** narrow the origin when
-  running open — e.g. echo only `localhost`/`127.0.0.1` origins, or drop the
-  wildcard entirely when `TOKEN` is empty. Cheap, and it would make the
-  precondition satisfiable rather than merely documented. Not done here because
-  it changes CORS behavior for existing container callers, which is exactly the
-  kind of thing that should not ride along in someone else's PR.
+  **The durable lesson — publish BEFORE pushing the branch, when the branch
+  documents live exploits.** `release/2.0.0` carries write-ups of two working
+  unauthenticated process kills against 1.9.1, and `Jason-Vaughan/ClawBridge` is
+  a **public** repo. Pushing that branch while the registry still served 1.9.1
+  would have published a working exploit against the only version anyone could
+  install. So the publish deliberately *preceded* the push. Any future release
+  whose branch describes an exploit against the currently-published version must
+  order the steps the same way: **publish the fix first, push the disclosure
+  second.**
+
+  **Verify current state from committed files, not from this item and not from
+  local state.** `.prawduct/change-log.md` (`release=v2.0.0` tags) and
+  `.prawduct/release-notes.md` (`## v2.0.0`) are tracked in git, so a fresh
+  clone or any reader of the public repo can follow them. Do **not** point at
+  `.prawduct/.handoff-notes.md` — it is gitignored and invisible to everyone but
+  the machine that wrote it. For the registry, `npm view
+  @jason-vaughan/clawbridge dist-tags`; if the local npm cache lags (it did, by
+  minutes, on 2026-08-03), query `https://registry.npmjs.org/@jason-vaughan%2Fclawbridge`
+  directly.
+
+  **Why it is still high priority:** habitat is running 1.9.1, which has two
+  unauthenticated single-request process kills (`GET /exports/<file>`, `GET //`),
+  each of which takes every live PTY session with it and is repeatable under
+  `KeepAlive`. And RentalClaw pins `^1.5.0`, so the published 2.0.0 *cannot*
+  break habitat and habitat will *never* pick it up — **publishing did nothing
+  for habitat until that range is bumped by hand.**
+
+  Remaining steps:
+  1. `git tag v2.0.0` + `gh release create` (the tag and GitHub release are still
+     missing even though the package is live).
+  2. Merge `release/2.0.0` back to `main`.
+  3. **Bump RentalClaw's range `^1.5.0` → `^2.0.0` — another repo. Flag it; do
+     not edit it from a ClawBridge session.** Then `npm install` and restart
+     habitat, and confirm `/health` reports `bridge: 2.0.0`. **This is the only
+     remaining step that actually reaches habitat**; steps 1–2 are bookkeeping.
+     Habitat's plist already sets `BRIDGE_TOKEN`, so the breaking startup change
+     is a no-op there.
+
+  **Branch time-sensitivity — the old "delete and re-cut" advice is now
+  constrained.** `release/2.0.0` promoted `[Unreleased]`, so it conflicts with
+  `main` as soon as anything lands there under a fresh `[Unreleased]`, and
+  resolving that conflict risks silently dropping a changelog entry. Re-cutting
+  the *branch* is still ~10 minutes, but **2.0.0 is immutable on npm now** — a
+  re-cut may not change the version or the published contents' meaning; it can
+  only redo the branch prep for the same released 2.0.0. Anything requiring
+  different published bits needs 2.0.1.
+
+  The decision that was riding with it — `CRS-4T8K` (narrow CORS when
+  unauthenticated) — **shipped 2026-08-03 into `release/2.0.0`** (scope
+  `cors-origin`, archived), which is why it belonged in a major bump rather than
+  after one. `release/2.0.0` therefore carries more than the prep commit — the
+  origin gate is a second breaking change, already written into the 2.0.0
+  CHANGELOG and release notes. The publish steps above are otherwise unchanged.
 
 - **[CFG-3QK7]** `.env` loader treats an explicitly-empty variable as absent
-  `effort: S · impact: S · area: config · source: critic · added: 2026-08-02 · status: open · stage: ready`
+  `effort: S · impact: M · area: config · source: critic · added: 2026-08-02 · status: open · stage: ready · reviewed: 2026-08-03`
 
   `bridge/server.js` loads `bridge/.env` with `if (!process.env[key]) process.env[key] = val`.
   A variable a caller deliberately set to `''` is falsy, so `.env` silently overrides it —
@@ -139,6 +180,19 @@
   Consequence while open: `bridge/__tests__/auth.test.js` throws a diagnostic error at load
   if a real `bridge/.env` defines `BRIDGE_TOKEN`, because the loader would backfill a token
   into the deliberately-tokenless cases and they would fail inexplicably.
+
+  **Impact raised S → M (2026-08-03).** The original `S` predates
+  `CLAWBRIDGE_ALLOWED_ORIGINS`, which the `cors-origin` work introduced and which
+  this same loader now governs: `bridge/server.js:37` is `if (!process.env[key])`,
+  and line 66 reads that variable afterwards. The empty-vs-absent conflation is
+  therefore **authority-gating**, not cosmetic config. An operator who
+  deliberately sets `CLAWBRIDGE_ALLOWED_ORIGINS=` — empty meaning "no additional
+  origins beyond loopback" — has it silently backfilled from `bridge/.env` if
+  that file defines it, widening the browser-reachable origin set with no trace.
+  Same shape as the `BRIDGE_TOKEN` case in `SEC-UTP4`, now on the variable that
+  stands between a visited page and the bridge.
+
+  Re-rating and rationale only — scope, fix shape, and `stage: ready` unchanged.
 
 - **[DOC-I9MN]** `.claude/priming/clawbridge-toolmount-fix.md` publishes habitat operational detail
   `effort: S · impact: M · area: docs · source: critic · added: 2026-08-02 · status: open · stage: design`
@@ -178,11 +232,11 @@
   rewording a breaking change. Cheap now, not cheap in a year.
 
 - **[TST-RYHK]** No CI — every test level is manual
-  `effort: M · impact: L · area: tooling · source: reflection · added: 2026-08-02 · status: open · stage: ready`
+  `effort: M · impact: L · area: tooling · source: reflection · added: 2026-08-02 · status: open · stage: ready · reviewed: 2026-08-03`
 
   There is no `.github/workflows/` directory. The only workflow this repo ever
-  had was a stats counter, removed in `0c0a025`. So the 565-test suite, the
-  regression suite guarding all 13 known bugs, and the contract tests all run
+  had was a stats counter, removed in `0c0a025`. So the full test suite, the
+  regression tests guarding every known bug, and the contract tests all run
   only when a human remembers to run them — on a project whose primary fragility
   is that an upstream release can break it with no change on this side.
 
@@ -194,6 +248,109 @@
   `RUN_E2E=1` stays out of CI — it needs a real authenticated Claude Code
   binary. Optionally add eslint with a minimal ruleset to move the mechanical
   norms off Critic.
+
+- **[UPS-7Z4M]** prawduct-upstream: `audit-learnings` `run_sentinel` hardcodes pytest, so learnings sentinels are inert in this Node/vitest repo
+  `effort: S · impact: S · area: prawduct-upstream · source: critic · added: 2026-08-03 · status: open · stage: ready`
+
+  **Verified at source** in the installed plugin: `lib/audit_learnings_cmd.py:166`
+  runs `["python3", "-m", "pytest", sentinel, "-q"]` and never consults the
+  `test_command` declared in `project-state.yaml`.
+
+  **Consequence here:** every sentinel check reports `No module named pytest`, so
+  a sentinel-protected learning can never be retired through the intended
+  lifecycle, and `audit-learnings` emits a standing `errors` entry telling the
+  operator to fix a test that passes (`bridge/__tests__/auth.test.js` is green,
+  55 tests).
+
+  **Explicitly NOT a retirement risk.** `sentinel_passed is False` routes to
+  `errors` at `:301`, and only `True` reaches the retirement path at `:314` — it
+  fails safe. An earlier reading of mine claimed otherwise and was wrong.
+
+  Filed upstream as https://github.com/brookstalley/prawduct/issues/573,
+  cross-referenced to their #154 (closed; fixes the interpreter
+  `python3` → `sys.executable` but still hardcodes pytest) and #294 (open
+  umbrella on non-Python environments).
+
+  **Nothing to do in this repo** except ignore that error line until upstream
+  lands a fix. The item exists so the noise is explained rather than
+  rediscovered.
+
+- **[GOV-2H9K]** `learnings.md` carries narrative bodies in what prawduct treats as the rule index
+  `effort: M · impact: S · area: governance · source: critic · added: 2026-08-03 · status: open · stage: design`
+
+  `record-lint` raises `learnings-entry-shape` on every narrative line. The
+  upstream convention is that `learnings.md` holds When-X-do-Y-because-Z rules,
+  with narrative moved to `learnings-detail.md` — which does not exist here.
+
+  This is **pre-existing and file-wide**: every entry has a narrative body, not
+  just the one added 2026-08-03. So a compaction is a deliberate restructuring of
+  a governance artifact, not a drive-by.
+
+  **Note the counterweight before acting:** upstream issue #350 records
+  `learnings-detail.md` as an unbounded sink with no route out, so splitting may
+  trade one problem for another. Decide whether this repo adopts the split at all
+  before doing it — that decision is the work, which is why this is
+  `stage: design`.
+
+- **[CRS-8N3P]** Wildcard CORS exposes the three unauthenticated routes even when `BRIDGE_TOKEN` is set
+  `effort: S · impact: M · area: security · source: critic · added: 2026-08-03 · status: open · stage: design · related: CRS-4T8K · refs: .prawduct/artifacts/security-model.md § Boundary 1a, README.md § Security Posture`
+
+  The `CRS-4T8K` origin gate is **scoped to tokenless mode only**. With a token
+  set, `Access-Control-Allow-Origin` stays `*` (`bridge/server.js:770-771` — the
+  gate at `:760` is `if (!TOKEN)`, the wildcard at `:770` is `if (TOKEN)`).
+
+  **Why "no credential to send" does not save it.** Security-model boundary 1a
+  lists `GET /health`, `GET /exports` and `GET /exports/*` as unauthenticated *by
+  design*, and the `/exports` handlers (`bridge/server.js:823` and `:872`) run
+  **before** the auth check at `:896`. Those routes need no credential at all, so
+  the reason wildcard was judged safe in token mode — a cross-origin page has no
+  credential to send — does not apply to them.
+
+  **Consequence.** In the **default token-holding configuration**, any page the
+  operator visits can read the export listing and the contents of every file
+  under `EXPORTS_DIR` cross-origin. This is an escalation over the
+  already-documented "unauthenticated to anyone who can reach the port": a
+  firewalled port is still reachable from the operator's own browser.
+
+  Found by the cumulative Critic 2026-08-03 as a contradiction between the README
+  (which called token-mode wildcard "a nuisance rather than a hole") and the
+  security model's own boundary table. **The README is corrected; the behavior is
+  not** — it is unfixed in **both 1.9.1 and the pending 2.0.0**.
+
+  **`stage: design` because the fix is a real choice**, not a mechanical edit:
+  1. Narrow `Access-Control-Allow-Origin` on those three routes only.
+  2. Drop the wildcard entirely and require an allowlist in **both** modes.
+  3. Decide `EXPORTS_DIR` is publishable by definition — and say so far louder
+     than the current docs do.
+
+- **[PKG-4R7T]** npm tarball shipped gitignored session transcripts through the `files` whitelist
+  `effort: S · impact: S · area: security · source: critic · added: 2026-08-03 · status: open · stage: ready · related: SEC-PZ50`
+
+  `package.json` `files: ["bridge/", ...]` pulled `bridge/.session-history/*.json`
+  into every published tarball **even though the directory is gitignored** —
+  npm's `files` whitelist overrides `.gitignore`. Confirmed by downloading the
+  published 2.0.0 tarball: five snapshots present, including `demo.json` created
+  during the 2026-08-03 verification run. 1.9.1 shipped four of the same files.
+
+  **No leak, no rotation required.** The transcripts were scanned independently
+  for credential-shaped strings, host paths and usernames — **clean**.
+
+  **The channel is the defect, not the content.** The security model records that
+  transcripts are unfiltered raw PTY output that may echo `.env` values and keys
+  (`SEC-PZ50`), and the set grows with every local session on whatever machine
+  happens to publish. This time it was clean; the mechanism guarantees nothing
+  about next time.
+
+  **Fixed in the repo** by making the whitelist explicit: `bridge/*.js`,
+  `bridge/.env.example`, `bridge/com.clawbridge.builder.plist`,
+  `bridge/__tests__/`, `bridge/v2/`. Verified by diffing the proposed tarball
+  against the published 2.0.0 one — the delta is exactly the five transcripts and
+  nothing else.
+
+  **Remaining decision:** publish 2.0.1 so the registry's `latest` is clean, or
+  let it ride to the next release. (Note the tarball also ships both test
+  directories; left alone deliberately as pre-existing and out of scope for this
+  fix.)
 
 ## Promoted
 
@@ -457,3 +614,186 @@
   a read variable must be documented. `CLAUDE_BIN` failed the first half of that
   rule until 1.6.0; `PROJECTS_DIR` fails the second half now.
 
+- **[CRS-4T8K]** Wildcard CORS makes the unauthenticated escape hatch unsafe on any host with a browser
+  `effort: M · impact: M · area: security · source: critic · added: 2026-08-02 · status: shipped · closed-by: cors-origin · stage: ready · reviewed: 2026-08-03 · related: SEC-K4RD · refs: .prawduct/artifacts/security-model.md § Known gaps G5 "The header alone does not close it"`
+
+  **SHIPPED 2026-08-03 — build plan scope `cors-origin` on `release/2.0.0`**
+  (commits `48461f0` and `41d70fc`, plus the cumulative-review fixes). Both
+  decided halves landed: a pre-routing origin gate reading `Origin` with a
+  `Sec-Fetch-Site` fallback, and the allowed origin echoed in place of `*` —
+  both only while `BRIDGE_TOKEN` is empty, so token-set deployments and
+  non-browser callers are untouched.
+
+  **The correction is this item's most useful legacy.** As first written, this
+  item's stated remedy was to narrow the header — and discovery found that
+  insufficient *before any code was written*. Shipping it would have produced a
+  fix documenting itself as closing something it left open. The requirement was
+  rewritten first; the corrected analysis is preserved verbatim below. An item's
+  proposed remedy is a hypothesis, not a spec, and discovery is where it gets
+  falsified.
+
+  Original finding and the 2026-08-03 correction follow, unchanged.
+
+  `bridge/server.js` sets `Access-Control-Allow-Origin: *` on every response, and
+  the preflight allows `POST` with an `Authorization` header. With `BRIDGE_TOKEN`
+  set this is a nuisance rather than a hole — a random page has no credential to
+  send. **Under `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` it is a hole**: any page
+  the operator visits can cross-origin `POST /v2/session/start` against
+  `localhost` and spawn an agent with shell access to the host.
+
+  Raised three times by Critic before being acted on, because each pass I treated
+  it as a security-behavior decision belonging to the owner and therefore not
+  mine to touch. That was half right: changing the header is the owner's, but the
+  *precondition I had written into the startup warning and the README* — "only if
+  this port is genuinely unreachable by anyone else" — was mine, and it was
+  unsatisfiable as stated. Documented now in both places plus a comment at the
+  header, so an operator can at least evaluate the risk.
+
+  **Corrected 2026-08-03 (discovery) — the remedy this item first proposed was
+  insufficient.** It read: "narrow the origin when running open — echo only
+  `localhost`/`127.0.0.1`, or drop the wildcard when `TOKEN` is empty." That
+  **would not have closed the hole**, and shipping it would have produced a fix
+  documenting itself as closing something it left open. `parseBody` does not
+  inspect `Content-Type`; it `JSON.parse`s whatever bytes arrive. So a visited
+  page can send `POST /v2/session/start` with `Content-Type: text/plain` — one of
+  the three CORS-safelisted types — which makes it a **simple request**: no
+  preflight, the browser delivers it, and the route acts on it. CORS then blocks
+  the page from *reading the response*, by which time the agent has spawned.
+  **CORS governs response readability, not request delivery**; it has never been
+  a CSRF defense.
+
+  **Decided remedy — both halves, and only the first is load-bearing:**
+
+  1. **Reject state-changing requests carrying a disallowed `Origin` header,
+     before routing.** This is the half that stops the simple-request path. It is
+     safe for non-browser callers because they send no `Origin` at all — curl,
+     containers, and the RentalClaw client are untouched, and that property is why
+     it can ship without a compatibility shim.
+  2. **Echo the allowed origin instead of `*`**, covering response readability and
+     making preflights refuse disallowed origins.
+
+  Both apply **only when `TOKEN` is empty**. With a token set the wildcard stays
+  and container callers see no change at all.
+
+  **Honest bound, stated so it is not over-claimed:** an `Origin` check trusts a
+  header — meaningful against browsers (they set it; page script cannot forge it)
+  and worthless against a direct attacker. In unauthenticated mode a direct
+  attacker needs no CSRF anyway; every route is already open to anyone who can
+  reach the port. This closes the browser vector and nothing else — which is
+  exactly the vector that made the documented precondition unsatisfiable.
+
+  **Effort is no longer `S`.** This is a small-to-medium cycle on a declared
+  `risk_surface` file (`bridge/server.js`), so it needs a build plan and a Critic
+  pass — not a drive-by. Still cheapest to land inside the 2.0.0 major bump, since
+  it is a behavior change to a public surface.
+
+- **[SEC-K4RD]** A destructive operation should not be reachable by GET — `GET /v2/session/file?consume=true` unlinks the file it returns
+  `effort: M · impact: M · area: security · source: critic · added: 2026-08-03 · status: shipped · closed-by: safe-get · stage: ready · reviewed: 2026-08-03 · related: CRS-4T8K · refs: .prawduct/artifacts/security-model.md § Known gaps G7, .prawduct/artifacts/security-model.md § Known gaps G5, .prawduct/artifacts/api-contract.md § Direction`
+
+  Surfaced 2026-08-03 while building the origin gate for `CRS-4T8K`.
+  `bridge/v2/routes.js` routes this on `method === 'GET'` (line ~469) and, when
+  `consume=true`, `unlink`s the file after reading it (~line 519).
+
+  **Why this route was the sharpest edge of the CORS/CSRF hole:** a `no-cors` GET
+  — `<img src>`, `<script src>`, `<iframe>`, a top-level navigation — needs no
+  preflight, no script, and carries **no `Origin` header**. Nothing about the
+  request shape signals "state change", so nothing along the browser path was
+  positioned to stop it.
+
+  **The origin gate does not fully close this.** It blocks the browser path via
+  `Sec-Fetch-Site`, but a header check is strictly weaker than not accepting the
+  request shape at all: any client that omits **both** `Origin` and
+  `Sec-Fetch-Site` reaches the route. That residual is small in practice (a
+  non-browser caller in unauthenticated mode already has every route), but the
+  defense is a header the server does not control, not the method semantics it
+  does.
+
+  **Fix shape (as first proposed — superseded 2026-08-03 by the decision below;
+  kept verbatim because the reasoning it got wrong is the useful part):** require
+  `POST` (or `DELETE`) for consume-on-read. That is a
+  **breaking change to the `/v2` surface** — narrowing what an existing path
+  accepts — and is therefore governed by the api-contract **Direction** norm,
+  which requires a new path-major (`/v3`) for removing or narrowing, never a
+  minor or patch. So the requirement is not just "change the method": it is a
+  `/v3` question, or an additive `POST` alias plus a deprecation window on the
+  GET form. That is why this is `stage: requirements`, not `ready`.
+
+  **Deliberately NOT folded into 2.0.0.** It is a separate requirement that
+  surfaced mid-build; inventing it into the origin-gate chunk would have been
+  exactly the silent-requirement failure the methodology names. Recorded here so
+  the decision is visible rather than lost — note that the 2.0.0 major bump was
+  the cheapest carrier for a breaking `/v2` change, so deferring it has a real
+  cost the owner should weigh (see `REL-BRS7`).
+
+  ---
+
+  **DECISION — 2026-08-03 (discovery). `stage: requirements` → `stage: ready`;
+  the requirement is written and the fix is operator-chosen from four framed
+  options.**
+
+  **The strongest argument is not CSRF, and framing it that way is what kept this
+  item at `requirements`.** RFC 9110 §9.2.1 defines `GET` as a *safe* method — no
+  side effects for which the client is responsible — and real infrastructure is
+  built on that guarantee. Link unfurlers (Slack, Discord), browser prefetch and
+  speculative loads, corporate proxies, security scanners and crawlers all issue
+  bare `GET`s. **None of them sends `Origin` or `Sec-Fetch-Site`, and none of them
+  is a browser driven by a hostile page.** So the `CRS-4T8K` origin gate is blind
+  to every one of them *by construction*, not by oversight: it keys on headers
+  only a browser sets. Anything that ever saw such a URL — in a log, a chat
+  message, a bookmark, a bug report — could delete the file by merely looking at
+  it. That is a far larger population than "a page the operator visited", and it
+  is why the header gate was never going to be the answer here.
+
+  **This also explains the gate's residual** (recorded above as "small in
+  practice"). `GET` is precisely the method browsers do *not* tag with `Origin` —
+  Fetch appends `Origin` when the method is **not** `GET`/`HEAD`. So moving a
+  destructive operation onto any other method converts it into one the gate can
+  *always* see. The residual is not a separate weakness to patch; it is the same
+  fact as this item, seen from the other side.
+
+  **Decided fix.** `GET /v2/session/file` becomes a **pure read**. The consuming
+  form moves to **`POST`**, where every browser-issued request carries `Origin`
+  (so the `CRS-4T8K` gate applies) and where no prefetcher, unfurler or crawler
+  will go.
+
+  **`consume=true` on a `GET` must be REFUSED, not silently ignored.** Returning
+  the bytes without deleting the file would leave the caller believing it had
+  consumed a file that still exists — a correctness bug handed to whoever
+  migrates, which is worse than an error they can see. Refuse loudly.
+
+  **Known consumer: TangleClaw.** It uses `consume` for degraded-wrap
+  capture-back — the feature `consume` shipped for in 1.9.0. The migration is one
+  line, but this is a real first-party consumer, not a hypothetical one, so the
+  change needs to be announced rather than merely released.
+
+  **Norm position.** This is a breaking `/v2` change and is recorded as a
+  departure from the api-contract compatibility (**Direction**) norm — the
+  **second narrowing of the `/v2` surface**, exactly as `api-contract.md`
+  anticipated ("Changing that method is a second narrowing"). Counting all
+  departures from that norm it is the **third** (`BRIDGE_TOKEN` 2026-08-02,
+  `CRS-4T8K` 2026-08-03); counting narrowings of `/v2` it is the second. Note
+  this supersedes the `/v3`-or-deprecation-window framing above: the decision is
+  to take the departure in the 2.0.0 major, not to open a path-major.
+
+  ---
+
+  **SHIPPED — 2026-08-03**, scope `safe-get`, on `release/2.0.0`.
+
+  `GET /v2/session/file` is now a pure read. The consuming form moved to `POST`,
+  and `consume=true` on a `GET` is refused with **405** + `Allow: POST` rather
+  than silently ignored. Guards live in
+  `bridge/v2/__tests__/session-file.test.js` under the
+  `GET /v2/session/file must not have side effects (G7)` describe block, and were
+  **falsified by running both mutations** (not merely observed green).
+
+  **Discovery reframed this item, and the reframing is the durable lesson.** It
+  was filed as **CSRF residue** — the leftover of the `CRS-4T8K` origin gate. That
+  framing is what pinned it at `stage: requirements`, because as a CSRF patch the
+  fix looked like a small hardening that still had to buy its way past the
+  compatibility norm. The actual justification turned out to be
+  **RFC 9110 §9.2.1: `GET` is a safe method**. Restated that way the change is not
+  a patch on a header gate at all — it is bringing the route into line with a
+  guarantee the whole web already assumes — and *that* is what made the departure
+  from the api-contract compatibility (Direction) norm defensible. A breaking
+  `/v2` narrowing is hard to justify to close a residual; it is straightforward to
+  justify to stop violating method semantics.

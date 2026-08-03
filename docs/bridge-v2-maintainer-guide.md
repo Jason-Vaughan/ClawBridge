@@ -21,7 +21,7 @@ bridge/
     event-log.js         ← Append-only event log with cursor-based reads and long-poll
     sessions.js          ← Session + SessionManager: lifecycle, timers, permission flow
     routes.js            ← v2 HTTP route handlers
-    __tests__/           ← 18 test files, 512 tests
+    __tests__/           ← broker test suites
 ```
 
 ### Module responsibilities
@@ -303,7 +303,7 @@ All logic that reasons about session liveness must use `session.isTerminal` (whi
 
 ## Test structure
 
-512 tests across 18 files in `bridge/v2/__tests__/`:
+The broker suites in `bridge/v2/__tests__/`:
 
 | File | What it covers |
 |------|---------------|
@@ -373,10 +373,10 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" http://localhost:3201/circuit-
 
 Any maintenance run on the bridge should follow these rules:
 
-1. **Test first.** Run `npm test` locally before deploying. All 598 executed tests must pass (612 total; the 14 e2e are skipped unless `RUN_E2E=1`).
+1. **Test first.** Run `npm test` locally before deploying. Every executed test must pass; the 14 e2e are skipped unless `RUN_E2E=1`.
 2. **Regression check.** `regression.test.js` specifically covers the 11 known fragile areas — if any fail, do not deploy.
 3. **Deploy incrementally.** SCP changed files only, restart bridge. Don't replace the whole directory.
-4. **Verify health.** `curl http://localhost:3201/health` after restart — confirm `v2ActiveSessions: 0`, Claude version present, `auth.required: true`, and no `insecure` key.
+4. **Verify health.** `curl http://localhost:3201/health` after restart — confirm `activeSessions: 0`, Claude version present, `auth.required: true`, and no `insecure` key.
 
    **If the service never comes back, read the log before suspecting the build.** The bridge refuses to start without `BRIDGE_TOKEN` and exits non-zero with a `FATAL: BRIDGE_TOKEN is not set.` block; under launchd `KeepAlive` that presents as an endless respawn loop rather than a crash. Restore the variable — do not reach for `CLAWBRIDGE_ALLOW_UNAUTHENTICATED=true` to stop the loop, which starts the bridge with every route open on `0.0.0.0`.
 5. **Easy rollback.** Keep the previous version of any changed file. If something breaks:

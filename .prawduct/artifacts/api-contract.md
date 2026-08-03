@@ -42,6 +42,76 @@ Recorded here rather than in the build plan, because plans are retired at merge 
 whose only recorded exception lives in a deleted file is a norm that will be misread next
 time.
 
+### Recorded departure — 2026-08-03, the cross-origin gate (`CRS-4T8K`)
+
+Refusing cross-origin browser requests while the bridge runs without a token **narrows** what
+a caller can do to `/v2/*`, so the norm above applies and this is a departure. Naming it
+transport-level rather than contract-level would be the laundering move; it is recorded
+instead.
+
+Affected population: a browser page at a non-loopback origin driving an *unauthenticated*
+bridge. Non-browser callers send neither `Origin` nor `Sec-Fetch-Site` and see no change at
+all, and nothing changes when a token is set — so this narrows a real capability, but a
+narrow one.
+
+It meets the same four conditions that made the `BRIDGE_TOKEN` departure honest:
+
+- The norm protects consumers from surprise, not from losing a state that endangers them. The
+  prior behavior let a page the operator merely visited spawn agents and delete files on the
+  host — `GET /v2/session/file?consume=true` unlinks, and a no-cors `GET` needs no preflight,
+  no script, and no `Origin` header.
+- The precondition the product *documented* for this mode ("no browser runs on this host")
+  was never satisfiable by an operator. The docs were the side making a promise the code could
+  not keep.
+- `CLAWBRIDGE_ALLOWED_ORIGINS` is the path forward: any deployment that genuinely serves a
+  browser UI against an open bridge names its origin and keeps working.
+- It ships marked `BREAKING` in a major, so the cost is visible in the version rather than
+  arriving in a patch.
+
+**The norm itself is re-affirmed, not weakened.** Every recorded departure is a security fix
+to a state that endangered consumers, each with an explicit escape hatch or migration and a
+major version carrying the cost. None licenses a *feature* removal in anything but a
+path-major — that remains the rule, and the next narrowing that is not a security fix does
+not get to cite these.
+
+`SEC-K4RD` — a destructive operation answering `GET` — was open at this point and is now
+recorded below.
+
+### Recorded departure — 2026-08-03, consuming reads move to `POST` (`SEC-K4RD`)
+
+`GET /v2/session/file?consume=true` unlinked the file it returned. The consuming form now
+requires `POST`; `consume=true` on a `GET` is refused with `405` and `Allow: POST`. This
+narrows `/v2/*`, so the norm applies and this is a departure.
+
+**This is the third recorded departure from this norm, and the second narrowing of `/v2`.**
+That count is the thing worth justifying, not the change: a norm departed from repeatedly is
+a norm on its way to not binding, and "it was a security fix" is available as an excuse to
+almost anything if nobody is counting.
+
+What makes this one hold up beyond judgment: **RFC 9110 §9.2.1 defines `GET` as safe.** The
+prior behavior violated a guarantee every HTTP intermediary is entitled to rely on — link
+unfurlers, prefetchers, proxies, scanners and crawlers all issue bare `GET`s — so no consumer
+could *correctly* have depended on it, and several classes of software that never consented to
+being consumers could trigger it. That is a narrower and more checkable claim than "we judged
+the old behavior unsafe", which is what the other two departures rest on.
+
+Known consumer: TangleClaw's degraded-wrap capture-back, the feature `consume` shipped for in
+1.9.0. The migration is changing one method. `/v2/api-docs` describes both forms at runtime,
+so a consumer discovers the change from the API itself rather than only from this file.
+
+**Where the line now sits.** Three departures, all security, all in one major. A fourth should
+be read as evidence the norm needs amending rather than departing from again — and amending it
+is a decision to record deliberately, not something to arrive at by accumulating exceptions.
+
+**Owner ruling, 2026-08-03.** All three departures were put to the owner together with the
+alternative of amending the norm now to carve out security fixes, and the alternative of
+pulling one back to `/v3`. The ruling is: **ratify the three as departures, leave the norm
+unamended, and treat a fourth as the trigger to amend.** The carve-out was declined for the
+reason that makes it tempting — it would remove the friction that forced each of these three to
+be argued, and "is this a security fix?" is a judgment an author makes about their own change.
+So the count stays the pressure gauge, and it is now a ratified position rather than three
+unanswered `user can veto` notes.
+
 ## Canonical sources — do not duplicate them here
 
 | Surface | Canonical spec |
@@ -131,6 +201,24 @@ Additive, per § Direction — no existing field renamed, removed, or retyped:
 repo already holds that line: the tools-extension contract states an extension failure never
 flips root `ok`. Flipping it for an opt-in state would also page an operator about something
 they explicitly asked for. Monitor on `insecure`, which exists to be alerted on.
+
+### `/health` additions, 2026-08-03 (`CRS-4T8K`)
+
+Additive, per § Direction — no existing field renamed, removed, or retyped:
+
+- `cors: { mode: 'gated' | 'wildcard' }` — always present. `wildcard` carries a `reason`;
+  `gated` carries `loopbackAllowed: boolean` and `additionalOrigins: string[]`.
+- `cors.invalidOrigins: string[]` and `cors.warning: string` — present **only** when
+  `CLAWBRIDGE_ALLOWED_ORIGINS` holds entries that are not serialized origins.
+
+Reported in **both** modes on purpose. An absent key and a key reading `wildcard` are
+different facts, and only one of them answers an operator asking whether this bridge is
+gated — an inference from absence is exactly what this field exists to remove.
+
+`additionalOrigins` lists only origins the gate will actually honour; anything unmatchable
+appears under `invalidOrigins` instead. The two are disjoint, and the gate matches against the
+same effective set it reports here — a health report that disagreed with the gate about who is
+allowed in would be worse than no report, since an operator would act on it.
 
 ## OWASP API design review
 
